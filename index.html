@@ -1,0 +1,1972 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>課表 Widget 產生器 · Scriptable</title>
+<style>
+:root{
+  --bg:#f5f6f9; --panel:#ffffff; --panel2:#f2f4f7; --line:#e2e6ee;
+  --fg:#1b2230; --fg2:#5c6678; --fg3:#8b94a6;
+  --accent:#2f7fe0; --accent2:#6d63d4; --danger:#d9453f; --ok:#0f9d6e;
+  --r:14px;
+  --shadow:0 1px 2px rgba(20,30,50,.05);
+  --shadow-lg:0 20px 50px rgba(20,30,50,.18);
+  --cellh:56px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.grow{flex:1}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.hint{color:var(--fg3);font-size:12px;line-height:1.7}
+
+/* ── app bar ─────────────────────────── */
+header{
+  position:sticky;top:0;z-index:30;
+  display:flex;align-items:center;gap:10px;
+  padding:11px 20px;background:rgba(255,255,255,.9);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line);
+}
+header .logo{font-size:20px}
+#fTitle{
+  font-size:17px;font-weight:700;border:1px solid transparent;background:transparent;
+  border-radius:9px;padding:5px 9px;width:260px;
+}
+#fTitle:hover{background:var(--panel2)}
+#fTitle:focus{background:#fff;border-color:var(--accent);outline:none}
+
+.btn{
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:8px 14px;transition:.15s;white-space:nowrap;
+}
+.btn:hover{border-color:var(--fg3);background:#e8ecf2}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.ghost:hover{background:var(--panel2);border-color:transparent}
+.btn.sm{padding:5px 10px;font-size:12.5px;border-radius:8px}
+.btn.danger{color:var(--danger)}
+.btn.danger:hover{background:#fdecea;border-color:#f2b8b4}
+
+/* 下拉選單（純 CSS） */
+.menu{position:relative}
+.menu > summary{list-style:none;display:inline-block}
+.menu > summary::-webkit-details-marker{display:none}
+.menu .pop{
+  position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);
+  border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;min-width:190px;z-index:40;
+}
+.menu .pop button{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 12px;border-radius:8px;font-size:13.5px}
+.menu .pop button:hover{background:var(--panel2)}
+.menu .pop hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
+
+/* ── layout ─────────────────────────── */
+.layout{display:grid;gap:18px;padding:18px 20px 50px;grid-template-columns:minmax(0,1fr) 400px;align-items:start}
+@media (max-width:1100px){ .layout{grid-template-columns:1fr} .col-preview{position:static} }
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--shadow)}
+.card + .card{margin-top:16px}
+.card h2{margin:0 0 14px;font-size:14px;font-weight:700}
+.cardhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.cardhead h2{margin:0}
+
+/* ── 課表格線 ─────────────────────────── */
+.tt{
+  display:grid;grid-template-columns:62px repeat(5,minmax(0,1fr));
+  grid-template-rows:auto;grid-auto-rows:var(--cellh);
+  gap:6px;user-select:none;touch-action:none;
+}
+.tt .hd{
+  text-align:center;font-weight:700;font-size:13px;color:var(--fg2);
+  padding:6px 0;border-radius:8px;
+}
+.tt .hd.today{background:#e8f1fd;color:var(--accent)}
+.tt .tl{
+  display:flex;flex-direction:column;align-items:flex-end;justify-content:center;
+  padding-right:8px;color:var(--fg3);line-height:1.2;
+}
+.tt .tl b{font-size:13px;color:var(--fg2);font-weight:700}
+.tt .tl span{font-size:10.5px;font-variant-numeric:tabular-nums}
+.tt .cell{
+  border:1.5px dashed transparent;border-radius:10px;background:var(--panel2);
+  transition:background .12s,border-color .12s;position:relative;cursor:pointer;
+}
+.tt .cell:hover{background:#e9edf4;border-color:#c9d2e0}
+.tt .cell:hover::after{
+  content:"＋";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#9aa5b8;font-size:17px;
+}
+.tt .cell.drop{background:#dbe9fb;border-color:var(--accent);border-style:solid}
+.tt .cell.drop::after{content:none}
+.tt .blk{
+  border-radius:10px;padding:7px 9px;overflow:hidden;cursor:grab;position:relative;
+  border:1px solid;display:flex;flex-direction:column;justify-content:center;gap:1px;
+  transition:box-shadow .12s,transform .12s;
+}
+.tt .blk:hover{box-shadow:0 4px 14px rgba(20,30,50,.16);transform:translateY(-1px)}
+.tt .blk .n{font-weight:700;font-size:13px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt .blk .m{font-size:11px;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt .blk .rz{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
+.tt .blk .rz::after{content:"";position:absolute;left:50%;bottom:3px;width:22px;height:3px;margin-left:-11px;border-radius:2px;background:currentColor;opacity:.35}
+.tt .blk.clash{outline:2px solid var(--danger);outline-offset:-1px}
+body.dragging .tt .blk{pointer-events:none}
+body.dragging{cursor:grabbing}
+.tt .blk.ghost{opacity:.35}
+
+.legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--fg3);font-size:12px;margin-top:14px}
+.warn{background:#fdecea;border:1px solid #f2b8b4;color:#9c2b26;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:12px}
+.empty{text-align:center;color:var(--fg3);padding:26px 10px;font-size:13px}
+
+/* ── 預覽 ─────────────────── */
+.col-preview{position:sticky;top:74px}
+.pv-stage{
+  background:radial-gradient(120% 90% at 30% 0%,#4a5a76 0%,#232c3c 55%,#141a22 100%);
+  border-radius:18px;padding:22px;display:flex;justify-content:center;align-items:flex-start;overflow:auto;
+}
+.pv-tabs{display:flex;gap:4px;margin-bottom:12px;background:var(--panel2);padding:4px;border-radius:11px}
+.pv-tabs button{flex:1;border:0;background:transparent;border-radius:8px;padding:7px 4px;font-size:12.5px;color:var(--fg2)}
+.pv-tabs button.on{background:#fff;color:var(--fg);font-weight:700;box-shadow:var(--shadow)}
+.simbar{margin-top:14px}
+.simbar .lbl{font-size:12px;color:var(--fg3);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{
+  border:1px solid var(--line);background:var(--panel2);border-radius:8px;
+  padding:5px 0;min-width:34px;text-align:center;font-size:12.5px;color:var(--fg2);
+}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.chip.wide{padding-left:10px;padding-right:10px}
+
+/* ── 抽屜 ─────────────────── */
+.scrim{position:fixed;inset:0;background:rgba(20,26,38,.35);opacity:0;pointer-events:none;transition:.2s;z-index:50}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{
+  position:fixed;top:0;right:0;bottom:0;width:400px;max-width:94vw;background:var(--panel);
+  border-left:1px solid var(--line);box-shadow:var(--shadow-lg);z-index:60;
+  transform:translateX(102%);transition:transform .24s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column;
+}
+.drawer.on{transform:none}
+.drawer .dh{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.drawer .dh h2{margin:0;font-size:15px}
+.drawer .dtabs{display:flex;gap:4px;padding:10px 16px 0}
+.drawer .dtabs button{flex:1;border:0;background:var(--panel2);border-radius:9px;padding:8px;font-size:13px;color:var(--fg2)}
+.drawer .dtabs button.on{background:var(--fg);color:#fff;font-weight:700}
+.drawer .dbody{padding:16px;overflow:auto;flex:1}
+.sec{display:none}
+.sec.on{display:block}
+.sec h3{font-size:12px;color:var(--fg3);font-weight:700;margin:0 0 9px;letter-spacing:.6px}
+.sec-gap{height:22px}
+
+label.f{display:block;margin-bottom:12px}
+label.f > span{display:block;font-size:12px;color:var(--fg2);margin-bottom:5px}
+input[type=text],input[type=number],input[type=time],select,textarea{
+  width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:9px 11px;outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);background:#fff}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--fg3) 50%),linear-gradient(135deg,var(--fg3) 50%,transparent 50%);background-position:calc(100% - 16px) 17px,calc(100% - 11px) 17px;background-size:5px 5px;background-repeat:no-repeat}
+
+/* 視覺化選項卡 */
+.picks{display:grid;gap:9px}
+.picks.c2{grid-template-columns:1fr 1fr}
+.picks.c4{grid-template-columns:repeat(4,1fr)}
+.pick{
+  border:2px solid var(--line);border-radius:12px;background:#fff;padding:8px;
+  display:flex;flex-direction:column;align-items:center;gap:7px;transition:.15s;
+}
+.pick:hover{border-color:#c2ccdc}
+.pick.on{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,127,224,.14)}
+.pick .cap{font-size:12px;color:var(--fg2)}
+.pick.on .cap{color:var(--accent);font-weight:700}
+.pick .thumb{border-radius:9px;overflow:hidden;pointer-events:none}
+
+.seg{display:flex;gap:4px;background:var(--panel2);padding:4px;border-radius:11px}
+.seg button{flex:1;border:0;background:transparent;border-radius:8px;padding:8px 4px;font-size:12.5px;color:var(--fg2)}
+.seg button.on{background:#fff;color:var(--fg);font-weight:700;box-shadow:var(--shadow)}
+.switch{display:flex;align-items:center;justify-content:space-between;padding:9px 0;font-size:13.5px}
+.switch input{appearance:none;width:44px;height:26px;border-radius:13px;background:#d5dbe5;border:0;position:relative;transition:.15s;flex:none;cursor:pointer}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.switch input:checked{background:var(--accent)}
+.switch input:checked::after{left:21px}
+.ptimes{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.ptimes label{font-size:11.5px;color:var(--fg3)}
+.ptimes input{padding:7px 8px;font-size:13px}
+
+/* ── 課程編輯表 ─────────────────── */
+dialog{border:0;padding:0;background:transparent;max-height:none}
+dialog::backdrop{background:rgba(20,26,38,.42);backdrop-filter:blur(2px)}
+.sheet{
+  background:var(--panel);border-radius:18px;box-shadow:var(--shadow-lg);
+  width:min(460px,94vw);padding:20px;max-height:90vh;overflow:auto;
+}
+.sheet h3{margin:0 0 4px;font-size:17px}
+.sheet .when{color:var(--fg3);font-size:12.5px;margin-bottom:16px}
+.sheet .acts{display:flex;gap:8px;margin-top:18px}
+.colorrow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.colorrow input[type=color]{width:36px;height:32px;padding:0;border:1px solid var(--line);border-radius:9px;background:var(--panel2);cursor:pointer}
+.dotpick{width:24px;height:24px;border-radius:50%;border:2px solid transparent;padding:0;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.dotpick.on{border-color:var(--fg);transform:scale(1.12)}
+.pgrid{display:flex;flex-wrap:wrap;gap:5px}
+.pgrid .chip{min-width:36px}
+
+#dlgImport .sheet{width:min(640px,94vw)}
+#dlgImport textarea{height:220px;font:12px/1.5 ui-monospace,Consolas,monospace}
+#code{width:100%;height:340px;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre;overflow:auto;resize:vertical}
+.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--fg);color:#fff;font-weight:600;padding:11px 20px;border-radius:22px;opacity:0;transition:.25s;pointer-events:none;z-index:99;box-shadow:var(--shadow-lg)}
+.toast.on{opacity:1}
+details summary{cursor:pointer}
+
+.wg{
+  border-radius:22px;overflow:hidden;position:relative;flex:none;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  box-shadow:0 18px 40px rgba(0,0,0,.5);
+}
+
+.wg *{box-sizing:border-box}
+.wg .pad{display:flex;height:100%;width:100%}
+.wg .v{display:flex;flex-direction:column}
+.wg .h{display:flex;flex-direction:row;align-items:center}
+.wg .one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.wg .grow{flex:1;min-width:0}
+
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">📚</span>
+  <input type="text" id="fTitle" title="課表名稱" placeholder="我的課表">
+  <span class="grow"></span>
+  <button class="btn" id="btnLook">🎨 外觀</button>
+  <button class="btn" id="btnBell">🔔 提醒</button>
+  <details class="menu" id="moreMenu">
+    <summary class="btn ghost">⋯</summary>
+    <div class="pop">
+      <button id="btnImport">📥 匯入舊腳本</button>
+      <button id="btnPeriods">🕐 調整節次時間</button>
+      <button id="btnCopy">📋 複製程式碼</button>
+      <button id="btnShowCode">🧾 顯示程式碼</button>
+      <hr>
+      <button id="btnReset" class="danger">↺ 全部重設</button>
+    </div>
+  </details>
+  <button class="btn primary" id="btnDownload">⬇ 下載到手機</button>
+</header>
+
+<div class="layout">
+
+  <!-- ══ 課表格線 ══ -->
+  <div>
+    <div class="card">
+      <div class="cardhead">
+        <h2>我的一週</h2>
+        <span class="hint" style="margin:0">共 <b id="cnt">0</b> 門課</span>
+        <span class="grow"></span>
+        <button class="btn sm" id="btnClear">清空</button>
+        <button class="btn primary sm" id="btnAdd">＋ 新增課程</button>
+      </div>
+      <div id="warns"></div>
+      <div class="tt" id="tt"></div>
+      <div class="legend">
+        <span>👆 點空格新增</span>
+        <span>↕ 上下拖曳空格可一次選多節</span>
+        <span>✋ 拖曳課程可搬到別的時段</span>
+        <span>⤓ 拉課程下緣可調長度</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 手機預覽 ══ -->
+  <div class="col-preview">
+    <div class="card">
+      <div class="pv-tabs" id="pvTabs">
+        <button data-v="small">小</button>
+        <button data-v="medium">中</button>
+        <button data-v="large">大</button>
+        <button data-v="extraLarge">超大</button>
+      </div>
+      <div class="pv-stage" id="stage"></div>
+      <div class="simbar">
+        <div class="lbl">假裝現在是 …</div>
+        <div class="chips" id="simDays" style="margin-bottom:6px"></div>
+        <div class="chips" id="simPeriods"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>怎麼裝到手機上</h2>
+      <div class="hint">
+        1. 按「下載到手機」拿到 .js 檔。<br>
+        2. 手機開 <b>Scriptable</b> App，把檔案放進「iCloud Drive → Scriptable」資料夾，<br>
+        　 或在 App 裡新增腳本後貼上程式碼。<br>
+        3. 長按桌面 → 加入小工具 → Scriptable → 選尺寸。<br>
+        4. 編輯小工具 → Script 選這支 → When Interacting 設 Run Script。<br>
+        5. <b>有開提醒的話：</b>先在 Scriptable 手動跑一次允許通知，再到「捷徑 → 自動化 →
+        　 個人自動化 → 時間」設每天早上執行 Run Script（關掉「執行前先詢問」）。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 設定抽屜 ══ -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <div class="dh">
+    <h2 id="drawerTitle">設定</h2>
+    <span class="grow"></span>
+    <button class="btn ghost" id="drawerClose">✕</button>
+  </div>
+  <div class="dtabs" id="dtabs">
+    <button data-v="look">外觀</button>
+    <button data-v="bell">提醒</button>
+    <button data-v="time">節次</button>
+  </div>
+  <div class="dbody">
+
+    <!-- 外觀 -->
+    <div class="sec" data-sec="look">
+      <h3>配色主題</h3>
+      <div class="picks c2" id="themes"></div>
+      <div class="sec-gap"></div>
+
+      <h3>要不要每堂課都上色</h3>
+      <div class="picks c2" id="pickColorful"></div>
+      <div class="sec-gap"></div>
+
+      <h3>課程左邊的裝飾</h3>
+      <div class="picks c4" id="pickAccent"></div>
+      <div class="sec-gap"></div>
+
+      <h3>時間怎麼寫</h3>
+      <div class="seg" id="segTime">
+        <button data-v="period">第 5 節</button>
+        <button data-v="clock">13:10</button>
+      </div>
+      <div class="sec-gap"></div>
+
+      <h3>要顯示哪些資訊</h3>
+      <div class="switch"><span>授課老師</span><input type="checkbox" id="fTeacher"></div>
+      <div class="switch"><span>必修／選修</span><input type="checkbox" id="fType"></div>
+      <div class="switch"><span>「上課中」小標籤</span><input type="checkbox" id="fBadge"></div>
+    </div>
+
+    <!-- 提醒 -->
+    <div class="sec" data-sec="bell">
+      <div class="switch"><span><b>上課前提醒我</b></span><input type="checkbox" id="fNotify"></div>
+      <div class="sec-gap"></div>
+
+      <h3>提前多久</h3>
+      <div class="chips" id="beforeChips" style="margin-bottom:12px"></div>
+      <label class="f"><span>自訂（分鐘）</span><input type="number" id="fBefore" min="0" max="120"></label>
+
+      <h3>其他</h3>
+      <div class="switch"><span>每天只提醒第一堂</span><input type="checkbox" id="fFirstOnly"></div>
+      <label class="f"><span>一次排定未來幾天份</span><input type="number" id="fDays" min="1" max="14"></label>
+
+      <div class="hint" style="background:#fff8e6;border:1px solid #f0dfae;border-radius:10px;padding:11px 13px">
+        ⚠️ <b>Widget 什麼時候更新是 iOS 決定的，不保證每天跑到。</b>
+        想讓提醒穩定，請在「捷徑 App → 自動化 → 個人自動化 → 時間」設一個每天早上執行這支腳本的排程
+        （動作選 Scriptable 的 Run Script）。iOS 每個 App 待處理通知上限 64 則，本腳本最多排 50 則。
+      </div>
+    </div>
+
+    <!-- 節次 -->
+    <div class="sec" data-sec="time">
+      <div class="row">
+        <label class="f" style="flex:1"><span>一天有幾節</span><input type="number" id="fCount" min="1" max="14"></label>
+        <label class="f" style="flex:1"><span>每節幾分鐘</span><input type="number" id="fLen" min="10" max="180"></label>
+      </div>
+      <h3>每節開始時間</h3>
+      <div class="ptimes" id="ptimes"></div>
+    </div>
+
+    <div class="sec-gap"></div>
+    <label class="f" style="margin-top:24px"><span>下載檔名</span><input type="text" id="fFile"></label>
+  </div>
+</aside>
+
+<!-- ══ 課程編輯表 ══ -->
+<dialog id="dlgCourse"><form method="dialog" class="sheet" id="courseSheet"></form></dialog>
+
+<!-- ══ 程式碼 ══ -->
+<dialog id="dlgCode"><div class="sheet" style="width:min(820px,94vw)">
+  <h3>產生的 Scriptable 程式碼</h3>
+  <div class="when">可以直接複製貼到 Scriptable App 裡</div>
+  <textarea id="code" readonly spellcheck="false"></textarea>
+  <div class="acts" style="justify-content:flex-end">
+    <button class="btn" id="codeClose">關閉</button>
+    <button class="btn primary" id="codeCopy">複製</button>
+  </div>
+</div></dialog>
+
+<!-- ══ 匯入 ══ -->
+<dialog id="dlgImport"><div class="sheet">
+  <h3>匯入舊腳本</h3>
+  <div class="when">貼上你原本的 Scriptable 課表腳本，或直接選 .js 檔，會自動讀出課程和外觀設定。</div>
+  <input type="file" id="fileIn" accept=".js,.txt" style="margin-bottom:10px">
+  <textarea id="importText" placeholder="在此貼上腳本內容…"></textarea>
+  <div class="acts" style="justify-content:flex-end">
+    <button class="btn" id="impCancel">取消</button>
+    <button class="btn primary" id="impOk">匯入</button>
+  </div>
+</div></dialog>
+
+<div class="toast" id="toast"></div>
+
+<!-- ══════════════ 產生腳本的樣板 ══════════════ -->
+<script type="text/plain" id="tpl">
+// Variables used by Scriptable.
+// These must be at the very top of the file. Do not edit.
+// icon-color: light-gray; icon-glyph: magic;
+//
+// 課表 Widget — 由「課表 Widget 產生器」產生
+// 支援 小 / 中 / 大 / 超大 尺寸
+
+// ══════════════════════════════════════════════════════
+//  課程資料
+// ══════════════════════════════════════════════════════
+const TITLE = __TITLE__;
+
+const courses = __COURSES__;
+
+// 每節開始時間、每節長度（分鐘）
+const PERIOD_TIME = __PERIOD_TIME__;
+const LESSON_MIN = __LESSON_MIN__;
+
+// ══════════════════════════════════════════════════════
+//  外觀設定
+// ══════════════════════════════════════════════════════
+const THEME = __THEME__;
+
+// ══════════════════════════════════════════════════════
+//  上課提醒（本機通知）
+//  ⚠️ Widget 的更新時機由 iOS 決定，不保證每天都會跑到。
+//     想要穩定提醒，請在「捷徑 App → 自動化 → 個人自動化」
+//     設一個每天早上執行本腳本的排程（動作選 Scriptable 的 Run Script）。
+// ══════════════════════════════════════════════════════
+const NOTIFY = __NOTIFY__;
+
+// ══════════════════════════════════════════════════════
+//  以下為繪製邏輯
+// ══════════════════════════════════════════════════════
+const DAY_NAMES = ['', '一', '二', '三', '四', '五'];
+const FG = THEME.fg;
+
+function col(hex) { return new Color(hex, 1); }
+function dim(hex, a) { return new Color(hex, a); }
+
+function cName(c, isNow) { return isNow ? col(c.color) : (THEME.colorful ? dim(c.color, 0.85) : dim(FG, 0.40)); }
+function cMeta(c, isNow) { return isNow ? dim(c.color, 0.70) : (THEME.colorful ? dim(c.color, 0.50) : dim(FG, 0.25)); }
+function cBar(c, isNow)  { return isNow ? col(c.color) : (THEME.colorful ? dim(c.color, 0.55) : dim(FG, 0.15)); }
+function cPill(c, isNow) { return isNow ? dim(c.color, 0.25) : (THEME.colorful ? dim(c.color, 0.16) : dim(FG, 0.08)); }
+
+function getTodayDay() {
+  const d = new Date().getDay();
+  return (d === 0 || d === 6) ? 0 : d;
+}
+
+function getDayCourses(day) {
+  return courses
+    .filter(c => c.day === day)
+    .sort((a, b) => a.periods[0] - b.periods[0]);
+}
+
+function getCurrentPeriod() {
+  const now = new Date();
+  const total = now.getHours() * 60 + now.getMinutes();
+  const keys = Object.keys(PERIOD_TIME).map(Number).sort((a, b) => a - b);
+  for (const p of keys) {
+    const parts = String(PERIOD_TIME[p]).split(':');
+    const start = Number(parts[0]) * 60 + Number(parts[1]);
+    if (total >= start && total < start + LESSON_MIN) return p;
+  }
+  return null;
+}
+
+function formatDate() {
+  const n = new Date();
+  return `${n.getMonth() + 1}/${n.getDate()}`;
+}
+
+function timeLabel(p) {
+  return THEME.timeMode === 'clock' ? (PERIOD_TIME[p] || '') : `第${p}節`;
+}
+
+function metaLine(c, withTeacher) {
+  let s = `🏛️ ${c.room}`;
+  if (withTeacher && THEME.showTeacher && c.teachers) s += `  👤 ${c.teachers}`;
+  if (THEME.showType && c.type) s += `  ${c.type}`;
+  return s;
+}
+
+function setBG(widget) {
+  if (THEME.bg[0] === THEME.bg[1]) {
+    widget.backgroundColor = col(THEME.bg[0]);
+    return;
+  }
+  const g = new LinearGradient();
+  g.colors = [col(THEME.bg[0]), col(THEME.bg[1])];
+  g.locations = [0, 1];
+  g.startPoint = new Point(0, 0);
+  g.endPoint = new Point(0, 1);
+  widget.backgroundGradient = g;
+}
+
+// 建立一列課程（依裝飾樣式加上線條 / 圓點 / 卡片底色）
+function courseRow(parent, c, isNow, barH) {
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  row.centerAlignContent();
+  if (THEME.accent === 'card') {
+    row.setPadding(6, 8, 6, 8);
+    row.backgroundColor = isNow ? dim(c.color, 0.22) : (THEME.colorful ? dim(c.color, 0.12) : dim(FG, 0.06));
+    row.cornerRadius = 8;
+  } else if (THEME.accent === 'bar') {
+    const b = row.addStack();
+    b.size = new Size(3, barH);
+    b.backgroundColor = cBar(c, isNow);
+    b.cornerRadius = 2;
+    row.addSpacer(8);
+  } else if (THEME.accent === 'dot') {
+    const b = row.addStack();
+    b.size = new Size(7, 7);
+    b.backgroundColor = cBar(c, isNow);
+    b.cornerRadius = 4;
+    row.addSpacer(8);
+  }
+  return row;
+}
+
+function addBadge(row, c) {
+  if (!THEME.showBadge) return;
+  row.addSpacer();
+  const b = row.addStack();
+  b.setPadding(3, 6, 3, 6);
+  b.backgroundColor = dim(c.color, 0.22);
+  b.cornerRadius = 6;
+  const t = b.addText('上課中');
+  t.font = Font.boldSystemFont(9);
+  t.textColor = col(c.color);
+}
+
+function placeholder(stack, text, size) {
+  const t = stack.addText(text);
+  t.font = Font.systemFont(size);
+  t.textColor = dim(FG, 0.45);
+  return t;
+}
+
+// ── 小 Widget：只顯示今天 ──────────────────────────────
+function buildSmall(widget) {
+  setBG(widget);
+  const today = getTodayDay();
+
+  const stack = widget.addStack();
+  stack.layoutVertically();
+  stack.setPadding(14, 14, 14, 14);
+
+  const titleRow = stack.addStack();
+  titleRow.layoutHorizontally();
+  titleRow.centerAlignContent();
+  const tt = titleRow.addText(today === 0 ? '週末' : `星期${DAY_NAMES[today]}`);
+  tt.font = Font.boldSystemFont(15);
+  tt.textColor = col(FG);
+  titleRow.addSpacer();
+  const dt = titleRow.addText(formatDate());
+  dt.font = Font.systemFont(11);
+  dt.textColor = dim(FG, 0.4);
+
+  stack.addSpacer(8);
+
+  if (today === 0) {
+    stack.addSpacer();
+    placeholder(stack, '☀️ 放假囉', 14).centerAlignText();
+    stack.addSpacer();
+    return;
+  }
+
+  const list = getDayCourses(today);
+  const cur = getCurrentPeriod();
+
+  if (list.length === 0) {
+    stack.addSpacer();
+    placeholder(stack, '今天沒有課 🎉', 13).centerAlignText();
+    stack.addSpacer();
+    return;
+  }
+
+  list.slice(0, 3).forEach((c, i) => {
+    if (i > 0) stack.addSpacer(6);
+    const isNow = !!cur && c.periods.indexOf(cur) >= 0;
+
+    const row = courseRow(stack, c, isNow, 32);
+    const info = row.addStack();
+    info.layoutVertically();
+
+    const nm = info.addText(c.name);
+    nm.font = Font.boldSystemFont(13);
+    nm.textColor = cName(c, isNow);
+    nm.lineLimit = 1;
+
+    const mt = info.addText(`${timeLabel(c.periods[0])} · 🏛️ ${c.room}`);
+    mt.font = Font.systemFont(10);
+    mt.textColor = cMeta(c, isNow);
+    mt.lineLimit = 1;
+
+    if (isNow) addBadge(row, c);
+  });
+}
+
+// ── 中 Widget：今天 + 明天 ─────────────────────────────
+function buildMedium(widget) {
+  setBG(widget);
+  const today = getTodayDay();
+
+  const main = widget.addStack();
+  main.layoutHorizontally();
+  main.setPadding(14, 14, 14, 14);
+
+  // 左：今天
+  const left = main.addStack();
+  left.layoutVertically();
+  left.size = new Size(160, 0);
+
+  const lt = left.addText(today === 0 ? '週末' : `今天 · 星期${DAY_NAMES[today]}`);
+  lt.font = Font.boldSystemFont(13);
+  lt.textColor = col(FG);
+  left.addSpacer(8);
+
+  if (today === 0) {
+    placeholder(left, '放假囉 ☀️', 12);
+  } else {
+    const list = getDayCourses(today);
+    const cur = getCurrentPeriod();
+    if (list.length === 0) {
+      placeholder(left, '無課程', 12);
+    } else {
+      list.slice(0, 4).forEach((c, i) => {
+        if (i > 0) left.addSpacer(5);
+        const isNow = !!cur && c.periods.indexOf(cur) >= 0;
+
+        const row = courseRow(left, c, isNow, 28);
+        const info = row.addStack();
+        info.layoutVertically();
+
+        const nm = info.addText(c.name);
+        nm.font = Font.boldSystemFont(12);
+        nm.textColor = cName(c, isNow);
+        nm.lineLimit = 1;
+
+        const mt = info.addText(metaLine(c, true));
+        mt.font = Font.systemFont(10);
+        mt.textColor = cMeta(c, isNow);
+        mt.lineLimit = 1;
+      });
+    }
+  }
+
+  main.addSpacer(12);
+  const divider = main.addStack();
+  divider.size = new Size(1, 0);
+  divider.backgroundColor = dim(FG, 0.1);
+  main.addSpacer(12);
+
+  // 右：明天
+  const right = main.addStack();
+  right.layoutVertically();
+
+  const nextDay = today === 0 ? 1 : (today === 5 ? 0 : today + 1);
+  const rt = right.addText(nextDay === 0 ? '明天 · 週末' : `明天 · 星期${DAY_NAMES[nextDay]}`);
+  rt.font = Font.boldSystemFont(13);
+  rt.textColor = dim(FG, 0.55);
+  right.addSpacer(8);
+
+  if (nextDay === 0) {
+    placeholder(right, '週末放假', 12);
+  } else {
+    const list = getDayCourses(nextDay);
+    if (list.length === 0) {
+      placeholder(right, '無課程', 12);
+    } else {
+      list.slice(0, 4).forEach((c, i) => {
+        if (i > 0) right.addSpacer(5);
+        const row = courseRow(right, c, false, 28);
+        const info = row.addStack();
+        info.layoutVertically();
+
+        const nm = info.addText(c.name);
+        nm.font = Font.systemFont(12);
+        nm.textColor = cName(c, false);
+        nm.lineLimit = 1;
+
+        const mt = info.addText(metaLine(c, false));
+        mt.font = Font.systemFont(10);
+        mt.textColor = cMeta(c, false);
+        mt.lineLimit = 1;
+      });
+    }
+  }
+}
+
+// ── 大 / 超大 Widget：整週概覽 + 今日詳情 ────────────────
+function buildLarge(widget, availableWidth) {
+  availableWidth = availableWidth || 290;
+  setBG(widget);
+  const today = getTodayDay();
+  const cur = getCurrentPeriod();
+
+  const main = widget.addStack();
+  main.layoutVertically();
+  main.setPadding(16, 16, 16, 16);
+
+  const hRow = main.addStack();
+  hRow.layoutHorizontally();
+  hRow.centerAlignContent();
+  const title = hRow.addText(TITLE);
+  title.font = Font.boldSystemFont(15);
+  title.textColor = col(FG);
+  title.lineLimit = 1;
+  hRow.addSpacer();
+  const dt = hRow.addText(formatDate());
+  dt.font = Font.systemFont(11);
+  dt.textColor = dim(FG, 0.35);
+
+  main.addSpacer(10);
+
+  [1, 2, 3, 4, 5].forEach(day => {
+    const dayCourses = getDayCourses(day);
+    const dayRow = main.addStack();
+    dayRow.layoutHorizontally();
+    dayRow.centerAlignContent();
+
+    const dayLabel = dayRow.addStack();
+    dayLabel.size = new Size(28, 0);
+    const dl = dayLabel.addText(DAY_NAMES[day]);
+    dl.font = Font.boldSystemFont(12);
+    dl.textColor = (day === today) ? dim(FG, 0.8) : dim(FG, 0.3);
+
+    dayRow.addSpacer(6);
+
+    if (dayCourses.length === 0) {
+      const e = dayRow.addText('—');
+      e.font = Font.systemFont(11);
+      e.textColor = dim(FG, 0.15);
+    } else {
+      const pillRow = dayRow.addStack();
+      pillRow.layoutHorizontally();
+      pillRow.spacing = 4;
+      const labelW = availableWidth - 34;
+      const pillW = Math.floor((labelW - (dayCourses.length - 1) * 4) / dayCourses.length);
+
+      dayCourses.forEach(c => {
+        const isNow = (day === today) && !!cur && c.periods.indexOf(cur) >= 0;
+
+        const pill = pillRow.addStack();
+        pill.size = new Size(pillW, 22);
+        pill.setPadding(0, 6, 0, 6);
+        pill.backgroundColor = cPill(c, isNow);
+        pill.cornerRadius = 6;
+        pill.centerAlignContent();
+
+        const maxChars = Math.max(2, Math.floor(pillW / 16));
+        const label = c.name.length > maxChars ? c.name.slice(0, maxChars) + '…' : c.name;
+        const pt = pill.addText(label);
+        pt.font = Font.systemFont(10);
+        pt.textColor = isNow ? col(c.color) : (THEME.colorful ? dim(c.color, 0.9) : dim(FG, 0.4));
+        pt.lineLimit = 1;
+        pt.minimumScaleFactor = 0.8;
+      });
+    }
+    if (day < 5) main.addSpacer(8);
+  });
+
+  main.addSpacer(12);
+  const sep = main.addStack();
+  sep.size = new Size(0, 1);
+  sep.backgroundColor = dim(FG, 0.08);
+  main.addSpacer(12);
+
+  const detailTitle = main.addText(today === 0 ? '週末放假 ☀️' : '今日課程');
+  detailTitle.font = Font.boldSystemFont(12);
+  detailTitle.textColor = dim(FG, 0.5);
+  main.addSpacer(8);
+
+  if (today !== 0) {
+    const list = getDayCourses(today);
+    if (list.length === 0) {
+      placeholder(main, '今天沒有課 🎉', 12);
+      return;
+    }
+    list.forEach((c, i) => {
+      if (i > 0) main.addSpacer(6);
+      const isNow = !!cur && c.periods.indexOf(cur) >= 0;
+
+      const row = courseRow(main, c, isNow, 34);
+      const info = row.addStack();
+      info.layoutVertically();
+
+      const topRow = info.addStack();
+      topRow.layoutHorizontally();
+      topRow.centerAlignContent();
+      const tm = topRow.addText(`${timeLabel(c.periods[0])}  `);
+      tm.font = Font.systemFont(11);
+      tm.textColor = isNow ? dim(c.color, 0.8) : dim(FG, 0.3);
+
+      const nm = topRow.addText(c.name);
+      nm.font = Font.boldSystemFont(13);
+      nm.textColor = cName(c, isNow);
+      nm.lineLimit = 1;
+
+      info.addSpacer(2);
+
+      const mt = info.addText(metaLine(c, true));
+      mt.font = Font.systemFont(10);
+      mt.textColor = cMeta(c, isNow);
+      mt.lineLimit = 1;
+
+      if (isNow) addBadge(row, c);
+    });
+  }
+}
+
+// ── 上課提醒排程 ────────────────────────────────────────
+const NOTIF_PREFIX = 'ttw-';
+const MAX_PENDING = 50;
+
+async function scheduleNotifications() {
+  if (!NOTIFY.enabled) return;
+  try {
+    // 先清掉本腳本先前排定、尚未觸發的通知，避免重複
+    const pending = await Notification.allPending();
+    const mine = pending
+      .filter(n => String(n.identifier || '').indexOf(NOTIF_PREFIX) === 0)
+      .map(n => n.identifier);
+    if (mine.length) await Notification.removePending(mine);
+
+    const now = new Date();
+    const planned = [];
+
+    for (let offset = 0; offset < NOTIFY.days; offset++) {
+      const base = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+      const wd = base.getDay();
+      if (wd === 0 || wd === 6) continue;
+
+      let list = getDayCourses(wd);
+      if (NOTIFY.firstOnly) list = list.slice(0, 1);
+
+      for (const c of list) {
+        const p = c.periods[0];
+        const t = PERIOD_TIME[p];
+        if (!t) continue;
+        const hm = String(t).split(':');
+        const fire = new Date(base.getFullYear(), base.getMonth(), base.getDate(), Number(hm[0]), Number(hm[1]));
+        fire.setMinutes(fire.getMinutes() - NOTIFY.beforeMin);
+        if (fire.getTime() <= now.getTime()) continue;
+        planned.push({ fire, c, p, t });
+      }
+    }
+
+    planned.sort((a, b) => a.fire - b.fire);
+
+    for (const item of planned.slice(0, MAX_PENDING)) {
+      const c = item.c;
+      const n = new Notification();
+      n.identifier = `${NOTIF_PREFIX}${item.fire.getTime()}-${item.p}`;
+      n.title = NOTIFY.beforeMin > 0
+        ? `${NOTIFY.beforeMin} 分鐘後上課：${c.name}`
+        : `上課囉：${c.name}`;
+      let body = `${item.t} 開始 · 🏛️ ${c.room}`;
+      if (c.teachers) body += ` · 👤 ${c.teachers}`;
+      n.body = body;
+      n.sound = 'default';
+      n.setTriggerDate(item.fire);
+      await n.schedule();
+    }
+  } catch (e) {
+    console.error('排程通知失敗：' + e);
+  }
+}
+
+// ── 主程式 ──────────────────────────────────────────────
+const widget = new ListWidget();
+widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
+
+const size = config.widgetFamily;
+if (size === 'small') buildSmall(widget);
+else if (size === 'medium') buildMedium(widget);
+else if (size === 'large') buildLarge(widget, 290);
+else if (size === 'extraLarge') buildLarge(widget, 620);
+else buildLarge(widget, 290);
+
+await scheduleNotifications();
+
+if (!config.runsInWidget) {
+  await widget.presentLarge();
+}
+
+Script.setWidget(widget);
+Script.complete();
+</script>
+
+<script>
+'use strict';
+
+/* ═══════════ 主題 ═══════════ */
+const THEMES = [
+  { id:'midnight', name:'暗夜',   bg:['#14141A','#1A1A23'], fg:'#ffffff' },
+  { id:'ocean',    name:'深海',   bg:['#0B1A2E','#132F4C'], fg:'#ffffff' },
+  { id:'forest',   name:'森林',   bg:['#0E1A14','#162C21'], fg:'#ffffff' },
+  { id:'plum',     name:'莓果',   bg:['#1A1024','#2A1740'], fg:'#ffffff' },
+  { id:'sunset',   name:'暮色',   bg:['#2A1520','#3A1E28'], fg:'#ffffff' },
+  { id:'oled',     name:'純黑',   bg:['#000000','#000000'], fg:'#ffffff' },
+  { id:'paper',    name:'紙白',   bg:['#FFFFFF','#F0F0F5'], fg:'#000000' },
+  { id:'cream',    name:'奶油',   bg:['#FBF7F0','#F2E7D8'], fg:'#3A2E22' },
+];
+
+const PALETTE = ['#7F77DD','#34c99a','#e8609a','#f5a623','#5ba4f5','#f07050','#888888','#c084fc','#22d3ee','#a3e635'];
+
+const DEFAULT_TIMES = ['08:10','09:10','10:10','11:10','13:10','14:10','15:10','16:10','17:10','18:10','19:10','20:10','21:10','22:10'];
+
+const DEFAULT_STATE = {
+  title: '資工三A 週課表',
+  filename: '課表 Widget.js',
+  theme: 'midnight',
+  colorful: false,
+  accent: 'bar',
+  timeMode: 'period',
+  showTeacher: true,
+  showType: false,
+  showBadge: true,
+  periodCount: 9,
+  lessonMin: 50,
+  times: DEFAULT_TIMES.slice(0, 9),
+  notify: { enabled: false, beforeMin: 10, days: 7, firstOnly: false },
+  courses: [
+    { name:'工程數學',   type:'必', day:1, periods:[5,6,7], room:'7919',  teachers:'黃政治',        color:'#7F77DD' },
+    { name:'網路爬蟲',   type:'選', day:1, periods:[2,3,4], room:'2902A', teachers:'馬豪尚',        color:'#34c99a' },
+    { name:'人工智慧',   type:'選', day:2, periods:[7,8,9], room:'2703',  teachers:'劉宗榮',        color:'#e8609a' },
+    { name:'雲端技術',   type:'選', day:2, periods:[2,3,4], room:'2902A', teachers:'黃祈勝/林亭延', color:'#f5a623' },
+    { name:'作業系統',   type:'必', day:3, periods:[5,6,7], room:'2902A', teachers:'黃祈勝',        color:'#5ba4f5' },
+    { name:'週會',       type:'必', day:4, periods:[7,8],   room:'5309',  teachers:'盧永豐',        color:'#888888' },
+    { name:'程式設計',   type:'必', day:4, periods:[2,3,4], room:'2701',  teachers:'洪維恩/蔡家緯', color:'#f07050' },
+    { name:'計算機網路', type:'必', day:5, periods:[5,6,7], room:'2902A', teachers:'林文濱',        color:'#5ba4f5' },
+  ],
+};
+
+const KEY = 'timetable-widget-state-v1';
+let S = load();
+let pvSize = 'large';
+let simDay = 1, simPeriod = 5;
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return structuredClone(DEFAULT_STATE);
+    const s = Object.assign(structuredClone(DEFAULT_STATE), JSON.parse(raw));
+    s.notify = Object.assign(structuredClone(DEFAULT_STATE.notify), s.notify || {});
+    return s;
+  } catch (e) { return structuredClone(DEFAULT_STATE); }
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+const $ = id => document.getElementById(id);
+function E(tag, opt, kids) {
+  const n = document.createElement(tag);
+  if (opt) {
+    if (opt.class) n.className = opt.class;
+    if (opt.style) n.setAttribute('style', opt.style);
+    if (opt.text != null) n.textContent = opt.text;
+  }
+  (kids || []).forEach(k => k && n.appendChild(k));
+  return n;
+}
+function theme() { return THEMES.find(t => t.id === S.theme) || THEMES[0]; }
+function rgba(hex, a) {
+  const h = hex.replace('#','');
+  const v = h.length === 3 ? h.split('').map(x => x + x).join('') : h;
+  const r = parseInt(v.slice(0,2),16), g = parseInt(v.slice(2,4),16), b = parseInt(v.slice(4,6),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 1600);
+}
+
+/* ═══════════ 設定 UI（視覺化選項）═══════════ */
+
+// 借用預覽引擎畫縮圖：暫時套用某組設定，畫一張小 Widget
+function thumb(overrides, scale) {
+  const keep = { theme: S.theme, colorful: S.colorful, accent: S.accent };
+  const keepDay = simDay, keepP = simPeriod;
+  Object.assign(S, overrides);
+  // 縮圖固定挑一個「有課、而且正在上課」的情境，才看得出高亮差異
+  const day = [1,2,3,4,5].find(d => dayCourses(d).length) || 1;
+  simDay = day;
+  const first = dayCourses(day)[0];
+  simPeriod = first ? first.periods[0] : 0;
+  const node = pvSmall();
+  Object.assign(S, keep); simDay = keepDay; simPeriod = keepP;
+
+  const s = scale || 0.62;
+  node.style.transform = `scale(${s})`;
+  node.style.transformOrigin = 'top left';
+  node.style.boxShadow = 'none';
+  const box = E('div', { class: 'thumb', style: `width:${Math.round(158*s)}px;height:${Math.round(158*s)}px` });
+  box.appendChild(node);
+  return box;
+}
+
+function buildPicks(wrapId, items, get, set, scale) {
+  const wrap = $(wrapId);
+  const paint = () => {
+    wrap.innerHTML = '';
+    items.forEach(it => {
+      const b = E('button', { class: 'pick' + (it.v === get() ? ' on' : '') });
+      b.appendChild(thumb(it.over, scale));
+      b.appendChild(E('div', { class: 'cap', text: it.label }));
+      b.onclick = () => { set(it.v); save(); repaintPicks(); render(); };
+      wrap.appendChild(b);
+    });
+  };
+  wrap._paint = paint;
+  paint();
+}
+
+function buildLookPanel() {
+  buildPicks('themes',
+    THEMES.map(t => ({ v: t.id, label: t.name, over: { theme: t.id } })),
+    () => S.theme, v => { S.theme = v; }, 0.62);
+
+  buildPicks('pickColorful', [
+    { v: false, label: '低調', over: { colorful: false } },
+    { v: true,  label: '繽紛', over: { colorful: true } },
+  ], () => S.colorful, v => { S.colorful = v; }, 0.62);
+
+  buildPicks('pickAccent', [
+    { v: 'bar',  label: '線條', over: { accent: 'bar' } },
+    { v: 'dot',  label: '圓點', over: { accent: 'dot' } },
+    { v: 'card', label: '色塊', over: { accent: 'card' } },
+    { v: 'none', label: '無',   over: { accent: 'none' } },
+  ], () => S.accent, v => { S.accent = v; }, 0.44);
+}
+
+// 改了主題會影響其他縮圖，所以一起重畫
+function repaintPicks() {
+  ['themes','pickColorful','pickAccent'].forEach(id => {
+    const w = $(id); if (w && w._paint) w._paint();
+  });
+}
+
+function buildSeg(id, get, set) {
+  const wrap = $(id);
+  const paint = () => [...wrap.children].forEach(b => b.classList.toggle('on', b.dataset.v === String(get())));
+  [...wrap.children].forEach(b => {
+    b.onclick = () => { set(b.dataset.v); save(); paint(); render(); };
+  });
+  paint();
+}
+
+function buildTimes() {
+  const wrap = $('ptimes'); wrap.innerHTML = '';
+  for (let i = 0; i < S.periodCount; i++) {
+    if (!S.times[i]) S.times[i] = DEFAULT_TIMES[i] || '08:10';
+    const l = E('label', { text: `第 ${i+1} 節` });
+    const inp = E('input');
+    inp.type = 'time'; inp.value = S.times[i];
+    inp.oninput = () => { S.times[i] = inp.value; save(); render(); };
+    l.appendChild(inp);
+    wrap.appendChild(l);
+  }
+}
+
+function chip(label, on, onclick, wide) {
+  const b = E('button', { class: 'chip' + (on ? ' on' : '') + (wide ? ' wide' : ''), text: label });
+  b.onclick = onclick;
+  return b;
+}
+
+function buildSim() {
+  if (simPeriod > S.periodCount) simPeriod = 0;
+
+  const dw = $('simDays'); dw.innerHTML = '';
+  [1,2,3,4,5].forEach(d => dw.appendChild(
+    chip('　一二三四五'[d], simDay === d, () => { simDay = d; buildSim(); renderGrid(); renderPreview(); }, true)));
+  dw.appendChild(chip('週末', simDay === 0, () => { simDay = 0; buildSim(); renderGrid(); renderPreview(); }, true));
+
+  const pw = $('simPeriods'); pw.innerHTML = '';
+  pw.appendChild(chip('下課', simPeriod === 0, () => { simPeriod = 0; buildSim(); renderPreview(); }, true));
+  for (let p = 1; p <= S.periodCount; p++) {
+    pw.appendChild(chip(String(p), simPeriod === p, () => { simPeriod = p; buildSim(); renderPreview(); }));
+  }
+}
+
+function buildBeforeChips() {
+  const w = $('beforeChips'); w.innerHTML = '';
+  [0, 5, 10, 15, 20, 30].forEach(m => w.appendChild(
+    chip(m === 0 ? '準時' : m + ' 分前', S.notify.beforeMin === m, () => {
+      S.notify.beforeMin = m; $('fBefore').value = m; save(); buildBeforeChips(); render();
+    }, true)));
+}
+
+function bindSettings() {
+  $('fTitle').value = S.title;
+  $('fFile').value = S.filename;
+  $('fCount').value = S.periodCount;
+  $('fLen').value = S.lessonMin;
+  $('fTeacher').checked = S.showTeacher;
+  $('fType').checked = S.showType;
+  $('fBadge').checked = S.showBadge;
+  $('fNotify').checked = S.notify.enabled;
+  $('fBefore').value = S.notify.beforeMin;
+  $('fDays').value = S.notify.days;
+  $('fFirstOnly').checked = S.notify.firstOnly;
+
+  $('fNotify').onchange    = e => { S.notify.enabled = e.target.checked; save(); render(); };
+  $('fFirstOnly').onchange = e => { S.notify.firstOnly = e.target.checked; save(); render(); };
+  $('fBefore').oninput     = e => { S.notify.beforeMin = Math.min(120, Math.max(0, +e.target.value || 0)); save(); buildBeforeChips(); render(); };
+  $('fDays').oninput       = e => { S.notify.days = Math.min(14, Math.max(1, +e.target.value || 7)); save(); render(); };
+
+  $('fTitle').oninput = e => { S.title = e.target.value; save(); render(); };
+  $('fFile').oninput  = e => { S.filename = e.target.value; save(); };
+  $('fLen').oninput   = e => { S.lessonMin = Math.max(5, +e.target.value || 50); save(); render(); };
+  $('fCount').oninput = e => {
+    const n = Math.min(14, Math.max(1, +e.target.value || 9));
+    // 縮小節數會截掉超出範圍的課，整堂都在範圍外的會消失 —— 先問過使用者
+    const lost = S.courses.filter(c => c.periods.every(p => p > n));
+    if (lost.length && !confirm(
+      `一天只剩 ${n} 節的話，這 ${lost.length} 門課會被移除：\n` +
+      lost.map(c => '· ' + (c.name || '(未命名)')).join('\n') + '\n\n要繼續嗎？')) {
+      e.target.value = S.periodCount;
+      return;
+    }
+    S.periodCount = n;
+    S.times = Array.from({length: n}, (_, i) => S.times[i] || DEFAULT_TIMES[i] || '08:10');
+    S.courses.forEach(c => { c.periods = c.periods.filter(p => p <= n); });
+    S.courses = S.courses.filter(c => c.periods.length);
+    save(); buildTimes(); buildSim(); render();
+    if (lost.length) toast(`已移除 ${lost.length} 門超出範圍的課`);
+  };
+  $('fTeacher').onchange = e => { S.showTeacher = e.target.checked; save(); render(); };
+  $('fType').onchange    = e => { S.showType = e.target.checked; save(); render(); };
+  $('fBadge').onchange   = e => { S.showBadge = e.target.checked; save(); render(); };
+
+  buildSeg('segTime', () => S.timeMode, v => { S.timeMode = v; });
+  buildBeforeChips();
+}
+
+/* ═══════════ 週課表格線 ═══════════ */
+
+// 把顏色壓深一點，讓淺色系的課名在淡色底上也看得清楚
+function shade(hex, k) {
+  const h = hex.replace('#',''),
+        v = h.length === 3 ? h.split('').map(x => x + x).join('') : h;
+  const f = ch => Math.round(parseInt(ch, 16) * k).toString(16).padStart(2, '0');
+  return '#' + f(v.slice(0,2)) + f(v.slice(2,4)) + f(v.slice(4,6));
+}
+
+// 把課程的節次切成「連續區段」，每段畫一塊
+function runsOf(periods) {
+  const p = [...periods].sort((a, b) => a - b);
+  const out = [];
+  for (const x of p) {
+    const last = out[out.length - 1];
+    if (last && x === last[last.length - 1] + 1) last.push(x);
+    else out.push([x]);
+  }
+  return out;
+}
+
+function clashSet() {
+  const seen = {}, bad = new Set();
+  S.courses.forEach((c, i) => c.periods.forEach(p => {
+    const k = c.day + '-' + p;
+    if (seen[k] !== undefined) { bad.add(i); bad.add(seen[k]); } else seen[k] = i;
+  }));
+  return bad;
+}
+
+function renderGrid() {
+  const tt = $('tt');
+  tt.innerHTML = '';
+  $('cnt').textContent = S.courses.length;
+
+  // 標題列
+  tt.appendChild(E('div'));
+  [1,2,3,4,5].forEach(d => tt.appendChild(
+    E('div', { class: 'hd' + (d === simDay ? ' today' : ''), text: '星期' + '　一二三四五'[d] })));
+
+  // 時間欄 + 空格
+  for (let p = 1; p <= S.periodCount; p++) {
+    const tl = E('div', { class: 'tl', style: `grid-column:1;grid-row:${p + 1}` });
+    tl.appendChild(E('b', { text: String(p) }));
+    tl.appendChild(E('span', { text: S.times[p-1] || '' }));
+    tt.appendChild(tl);
+    for (let d = 1; d <= 5; d++) {
+      const cell = E('div', { class: 'cell', style: `grid-column:${d + 1};grid-row:${p + 1}` });
+      cell.dataset.day = d; cell.dataset.p = p;
+      tt.appendChild(cell);
+    }
+  }
+
+  // 課程方塊（疊在空格上）
+  const bad = clashSet();
+  S.courses.forEach((c, idx) => {
+    runsOf(c.periods).forEach(run => {
+      const start = run[0];
+      if (start > S.periodCount) return;
+      const span = Math.min(run.length, S.periodCount - start + 1);
+      const deep = shade(c.color, 0.62);
+      const blk = E('div', {
+        class: 'blk' + (bad.has(idx) ? ' clash' : ''),
+        style: `grid-column:${c.day + 1};grid-row:${start + 1} / span ${span};` +
+               `background:${rgba(c.color,.15)};border-color:${rgba(c.color,.42)};color:${deep};z-index:1`,
+      });
+      blk.dataset.idx = idx;
+      blk.appendChild(E('div', { class: 'n', text: c.name || '(未命名)' }));
+      if (span > 1 || !c.room) blk.appendChild(E('div', { class: 'm', text: [c.room, c.teachers].filter(Boolean).join(' · ') }));
+      else blk.appendChild(E('div', { class: 'm', text: c.room }));
+      blk.appendChild(E('div', { class: 'rz' }));
+      tt.appendChild(blk);
+    });
+  });
+
+  renderWarnings();
+}
+
+function renderWarnings() {
+  const box = $('warns'); box.innerHTML = '';
+  const msgs = [];
+  S.courses.forEach(c => { if (!c.name.trim()) msgs.push('有課程還沒填名稱'); });
+
+  const slot = {};
+  S.courses.forEach(c => c.periods.forEach(p => {
+    const k = c.day + '-' + p;
+    (slot[k] = slot[k] || []).push(c.name || '(未命名)');
+  }));
+  // 同一天、同一組課相撞只講一次，不要每節都報
+  Object.entries(slot).forEach(([k, names]) => {
+    if (names.length > 1) {
+      const d = k.split('-')[0];
+      msgs.push(`星期${'　一二三四五'[+d]}撞課：${[...new Set(names)].join('、')}`);
+    }
+  });
+  const uniq = [...new Set(msgs)];
+  if (uniq.length) box.appendChild(E('div', { class: 'warn', text: '⚠ ' + uniq.join('　·　') }));
+}
+
+/* ── 拖放：新增 / 搬移 / 調長度 ─────────────────── */
+let drag = null;
+
+function cellAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el && el.classList.contains('cell') ? el : null;
+}
+function markDrop(day, p0, p1) {
+  const lo = Math.min(p0, p1), hi = Math.max(p0, p1);
+  $('tt').querySelectorAll('.cell').forEach(c => {
+    const d = +c.dataset.day, p = +c.dataset.p;
+    c.classList.toggle('drop', d === day && p >= lo && p <= hi);
+  });
+}
+function clearDrop() { $('tt').querySelectorAll('.cell.drop').forEach(c => c.classList.remove('drop')); }
+
+$('tt').addEventListener('pointerdown', e => {
+  // 用座標判斷按在哪，不依賴 e.target（合成事件、捕獲階段都會影響 target）
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  if (!hit) return;
+  const onResize = hit.classList.contains('rz');
+  const blk = hit.closest('.blk');
+  const cell = hit.closest('.cell');
+  if (!blk && !cell) return;
+  e.preventDefault();
+  try { $('tt').setPointerCapture(e.pointerId); } catch (err) {}
+
+  if (blk) {
+    const idx = +blk.dataset.idx;
+    const c = S.courses[idx];
+    drag = onResize
+      ? { mode: 'resize', idx, start: Math.min(...c.periods), end: Math.max(...c.periods), moved: false }
+      : { mode: 'move', idx, day: c.day, newStart: Math.min(...c.periods), moved: false, blk };
+  } else {
+    drag = { mode: 'new', day: +cell.dataset.day, p0: +cell.dataset.p, p1: +cell.dataset.p, moved: false };
+    markDrop(drag.day, drag.p0, drag.p1);
+  }
+  document.body.classList.add('dragging');
+});
+
+$('tt').addEventListener('pointermove', e => {
+  if (!drag) return;
+  const cell = cellAt(e.clientX, e.clientY);
+  if (!cell) return;
+  const d = +cell.dataset.day, p = +cell.dataset.p;
+
+  if (drag.mode === 'new') {
+    if (d !== drag.day) return;            // 只在同一天內拉長
+    if (p !== drag.p1) { drag.p1 = p; drag.moved = true; markDrop(drag.day, drag.p0, drag.p1); }
+  } else if (drag.mode === 'move') {
+    const c = S.courses[drag.idx];
+    const len = c.periods.length;
+    const lo = Math.max(1, Math.min(p, S.periodCount - len + 1));
+    if (d !== drag.day || lo !== drag.newStart) { drag.moved = true; }
+    drag.day = d; drag.newStart = lo;
+    if (drag.blk) drag.blk.classList.add('ghost');
+    markDrop(d, lo, lo + len - 1);
+  } else if (drag.mode === 'resize') {
+    const c = S.courses[drag.idx];
+    if (d !== c.day) return;
+    const end = Math.max(drag.start, p);
+    if (end !== drag.end) { drag.end = end; drag.moved = true; markDrop(c.day, drag.start, end); }
+  }
+});
+
+function endDrag(e) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  document.body.classList.remove('dragging');
+  clearDrop();
+  try { $('tt').releasePointerCapture(e.pointerId); } catch (err) {}
+
+  if (d.mode === 'new') {
+    const lo = Math.min(d.p0, d.p1), hi = Math.max(d.p0, d.p1);
+    openCourse(null, { day: d.day, periods: range(lo, hi) });
+  } else if (d.mode === 'move') {
+    if (!d.moved) { openCourse(d.idx); return; }
+    const c = S.courses[d.idx];
+    const len = c.periods.length;
+    c.day = d.day;
+    c.periods = range(d.newStart, d.newStart + len - 1);
+    save(); render();
+  } else if (d.mode === 'resize') {
+    if (!d.moved) { openCourse(d.idx); return; }
+    S.courses[d.idx].periods = range(d.start, d.end);
+    save(); render();
+  }
+}
+$('tt').addEventListener('pointerup', endDrag);
+$('tt').addEventListener('pointercancel', endDrag);
+
+function range(a, b) { const o = []; for (let i = a; i <= b; i++) o.push(i); return o; }
+
+/* ── 課程編輯表 ─────────────────── */
+function openCourse(idx, preset) {
+  const isNew = idx == null;
+  const c = isNew
+    ? { name: '', type: '必', day: preset.day, periods: preset.periods, room: '', teachers: '',
+        color: PALETTE[S.courses.length % PALETTE.length] }
+    : JSON.parse(JSON.stringify(S.courses[idx]));
+
+  const form = $('courseSheet');
+  form.innerHTML = '';
+
+  form.appendChild(E('h3', { text: isNew ? '新增課程' : '編輯課程' }));
+  const when = E('div', { class: 'when' });
+  const setWhen = () => {
+    const lo = Math.min(...c.periods), hi = Math.max(...c.periods);
+    const t1 = S.times[lo-1] || '', t2 = S.times[hi-1] || '';
+    when.textContent = `星期${'　一二三四五'[c.day]} · 第 ${lo === hi ? lo : lo + '–' + hi} 節　${t1}${t1 && t2 ? ' 起' : ''}`;
+  };
+  setWhen();
+  form.appendChild(when);
+
+  form.appendChild(fld('課程名稱', inp('text', c.name, v => { c.name = v; }, '例：計算機網路')));
+
+  const cr = E('div', { class: 'colorrow' });
+  const ci = E('input'); ci.type = 'color'; ci.value = c.color;
+  const dots = [];
+  ci.oninput = () => { c.color = ci.value; dots.forEach(d => d.classList.toggle('on', d.dataset.c === c.color)); };
+  cr.appendChild(ci);
+  PALETTE.forEach(p => {
+    const d = E('button', { class: 'dotpick' + (p.toLowerCase() === c.color.toLowerCase() ? ' on' : ''), style: `background:${p}` });
+    d.type = 'button'; d.dataset.c = p;
+    d.onclick = () => { c.color = p; ci.value = p; dots.forEach(x => x.classList.toggle('on', x.dataset.c === p)); };
+    dots.push(d); cr.appendChild(d);
+  });
+  form.appendChild(fld('顏色', cr));
+
+  const two = E('div', { class: 'row' });
+  const roomW = fld('教室', inp('text', c.room, v => { c.room = v; }, '例：2902A')); roomW.style.flex = '1';
+  const teaW = fld('老師', inp('text', c.teachers, v => { c.teachers = v; }, '例：王小明')); teaW.style.flex = '1';
+  two.appendChild(roomW); two.appendChild(teaW);
+  form.appendChild(two);
+
+  const typeSeg = E('div', { class: 'seg' });
+  ['必','選','通','其他'].forEach(t => {
+    const b = E('button', { class: (c.type === t ? 'on' : ''), text: t }); b.type = 'button';
+    b.onclick = () => { c.type = t; [...typeSeg.children].forEach(x => x.classList.toggle('on', x.textContent === t)); };
+    typeSeg.appendChild(b);
+  });
+  form.appendChild(fld('必修／選修', typeSeg));
+
+  const daySeg = E('div', { class: 'seg' });
+  [1,2,3,4,5].forEach(d => {
+    const b = E('button', { class: (c.day === d ? 'on' : ''), text: '星期' + '　一二三四五'[d] }); b.type = 'button';
+    b.onclick = () => { c.day = d; [...daySeg.children].forEach((x, i) => x.classList.toggle('on', i + 1 === d)); setWhen(); };
+    daySeg.appendChild(b);
+  });
+  form.appendChild(fld('星期', daySeg));
+
+  const pg = E('div', { class: 'pgrid' });
+  for (let p = 1; p <= S.periodCount; p++) {
+    const b = E('button', { class: 'chip' + (c.periods.includes(p) ? ' on' : ''), text: String(p) });
+    b.type = 'button'; b.title = S.times[p-1] || '';
+    b.onclick = () => {
+      const i = c.periods.indexOf(p);
+      if (i >= 0) { if (c.periods.length > 1) c.periods.splice(i, 1); } else c.periods.push(p);
+      c.periods.sort((x, y) => x - y);
+      b.classList.toggle('on', c.periods.includes(p));
+      setWhen();
+    };
+    pg.appendChild(b);
+  }
+  form.appendChild(fld('上課節次（可複選）', pg));
+
+  const acts = E('div', { class: 'acts' });
+  if (!isNew) {
+    const del = E('button', { class: 'btn danger', text: '刪除' }); del.type = 'button';
+    del.onclick = () => { S.courses.splice(idx, 1); save(); render(); $('dlgCourse').close(); toast('已刪除'); };
+    acts.appendChild(del);
+  }
+  acts.appendChild(E('span', { class: 'grow' }));
+  const cancel = E('button', { class: 'btn', text: '取消' }); cancel.type = 'button';
+  cancel.onclick = () => $('dlgCourse').close();
+  const ok = E('button', { class: 'btn primary', text: isNew ? '新增' : '儲存' }); ok.type = 'button';
+  ok.onclick = () => {
+    if (!c.name.trim()) c.name = '未命名';
+    if (!c.periods.length) c.periods = [1];
+    if (isNew) S.courses.push(c); else S.courses[idx] = c;
+    save(); render(); $('dlgCourse').close();
+  };
+  acts.appendChild(cancel); acts.appendChild(ok);
+  form.appendChild(acts);
+
+  $('dlgCourse').showModal();
+  setTimeout(() => { const f = form.querySelector('input[type=text]'); if (f) f.focus(); }, 30);
+
+  function fld(label, node) {
+    const l = E('label', { class: 'f' });
+    l.appendChild(E('span', { text: label }));
+    l.appendChild(node);
+    return l;
+  }
+  function inp(type, val, onchange, ph) {
+    const i = E('input'); i.type = type; i.value = val || ''; if (ph) i.placeholder = ph;
+    i.oninput = () => onchange(i.value);
+    return i;
+  }
+}
+
+/* ═══════════ 預覽 ═══════════ */
+function dayCourses(day) {
+  return S.courses.filter(c => c.day === day && c.periods.length)
+    .sort((a, b) => a.periods[0] - b.periods[0]);
+}
+function cName(c, now) { const t = theme(); return now ? c.color : (S.colorful ? rgba(c.color,.85) : rgba(t.fg,.40)); }
+function cMeta(c, now) { const t = theme(); return now ? rgba(c.color,.70) : (S.colorful ? rgba(c.color,.50) : rgba(t.fg,.25)); }
+function cBar(c, now)  { const t = theme(); return now ? c.color : (S.colorful ? rgba(c.color,.55) : rgba(t.fg,.15)); }
+function cPill(c, now) { const t = theme(); return now ? rgba(c.color,.25) : (S.colorful ? rgba(c.color,.16) : rgba(t.fg,.08)); }
+function timeLabel(p) { return S.timeMode === 'clock' ? (S.times[p-1] || '') : `第${p}節`; }
+function metaLine(c, withTeacher) {
+  let s = `🏛️ ${c.room || ''}`;
+  if (withTeacher && S.showTeacher && c.teachers) s += `  👤 ${c.teachers}`;
+  if (S.showType && c.type) s += `  ${c.type}`;
+  return s;
+}
+function dateStr() { const n = new Date(); return `${n.getMonth()+1}/${n.getDate()}`; }
+function isNowFor(c, day) { return simPeriod > 0 && day === simDay && c.periods.includes(simPeriod); }
+
+function txt(text, size, color, bold, extra) {
+  return E('div', {
+    class: 'one',
+    style: `font-size:${size}px;color:${color};${bold ? 'font-weight:700;' : ''}line-height:1.25;${extra || ''}`,
+    text,
+  });
+}
+function sp(px, horizontal) {
+  return E('div', { style: horizontal ? `width:${px}px;flex:none` : `height:${px}px;flex:none` });
+}
+function flexSp() { return E('div', { style: 'flex:1' }); }
+
+// 對應 courseRow()
+function pvRow(c, now, barH) {
+  const row = E('div', { class: 'h', style: 'width:100%' });
+  if (S.accent === 'card') {
+    const t = theme();
+    row.style.padding = '6px 8px';
+    row.style.background = now ? rgba(c.color,.22) : (S.colorful ? rgba(c.color,.12) : rgba(t.fg,.06));
+    row.style.borderRadius = '8px';
+  } else if (S.accent === 'bar') {
+    row.appendChild(E('div', { style: `width:3px;height:${barH}px;border-radius:2px;flex:none;background:${cBar(c, now)}` }));
+    row.appendChild(sp(8, true));
+  } else if (S.accent === 'dot') {
+    row.appendChild(E('div', { style: `width:7px;height:7px;border-radius:4px;flex:none;background:${cBar(c, now)}` }));
+    row.appendChild(sp(8, true));
+  }
+  return row;
+}
+function pvBadge(row, c) {
+  if (!S.showBadge) return;
+  row.appendChild(flexSp());
+  row.appendChild(E('div', {
+    style: `padding:3px 6px;border-radius:6px;flex:none;background:${rgba(c.color,.22)};color:${c.color};font-size:9px;font-weight:700;line-height:1.1`,
+    text: '上課中',
+  }));
+}
+function pvInfo() { return E('div', { class: 'v grow' }); }
+
+function shell(w, h) {
+  const t = theme();
+  const bg = t.bg[0] === t.bg[1] ? t.bg[0] : `linear-gradient(180deg,${t.bg[0]},${t.bg[1]})`;
+  return E('div', { class: 'wg', style: `width:${w}px;height:${h}px;background:${bg}` });
+}
+
+function pvSmall() {
+  const t = theme();
+  const wg = shell(158, 158);
+  const s = E('div', { class: 'v', style: 'padding:14px;height:100%' });
+  wg.appendChild(s);
+
+  const tr = E('div', { class: 'h' });
+  tr.appendChild(txt(simDay === 0 ? '週末' : `星期${'　一二三四五'[simDay]}`, 15, t.fg, true));
+  tr.appendChild(flexSp());
+  tr.appendChild(txt(dateStr(), 11, rgba(t.fg,.4)));
+  s.appendChild(tr);
+  s.appendChild(sp(8));
+
+  if (simDay === 0) { s.appendChild(flexSp()); s.appendChild(txt('☀️ 放假囉', 14, rgba(t.fg,.45), false, 'text-align:center')); s.appendChild(flexSp()); return wg; }
+
+  const list = dayCourses(simDay);
+  if (!list.length) { s.appendChild(flexSp()); s.appendChild(txt('今天沒有課 🎉', 13, rgba(t.fg,.45), false, 'text-align:center')); s.appendChild(flexSp()); return wg; }
+
+  list.slice(0,3).forEach((c, i) => {
+    if (i > 0) s.appendChild(sp(6));
+    const now = isNowFor(c, simDay);
+    const row = pvRow(c, now, 32);
+    const info = pvInfo();
+    info.appendChild(txt(c.name, 13, cName(c, now), true));
+    info.appendChild(txt(`${timeLabel(c.periods[0])} · 🏛️ ${c.room || ''}`, 10, cMeta(c, now)));
+    row.appendChild(info);
+    if (now) pvBadge(row, c);
+    s.appendChild(row);
+  });
+  return wg;
+}
+
+function pvMedium() {
+  const t = theme();
+  const wg = shell(338, 158);
+  const main = E('div', { class: 'h', style: 'padding:14px;height:100%;align-items:stretch' });
+  wg.appendChild(main);
+
+  const left = E('div', { class: 'v', style: 'width:160px;flex:none' });
+  left.appendChild(txt(simDay === 0 ? '週末' : `今天 · 星期${'　一二三四五'[simDay]}`, 13, t.fg, true));
+  left.appendChild(sp(8));
+  if (simDay === 0) {
+    left.appendChild(txt('放假囉 ☀️', 12, rgba(t.fg,.45)));
+  } else {
+    const list = dayCourses(simDay);
+    if (!list.length) left.appendChild(txt('無課程', 12, rgba(t.fg,.45)));
+    list.slice(0,4).forEach((c, i) => {
+      if (i > 0) left.appendChild(sp(5));
+      const now = isNowFor(c, simDay);
+      const row = pvRow(c, now, 28);
+      const info = pvInfo();
+      info.appendChild(txt(c.name, 12, cName(c, now), true));
+      info.appendChild(txt(metaLine(c, true), 10, cMeta(c, now)));
+      row.appendChild(info);
+      left.appendChild(row);
+    });
+  }
+  main.appendChild(left);
+  main.appendChild(sp(12, true));
+  main.appendChild(E('div', { style: `width:1px;flex:none;background:${rgba(t.fg,.1)}` }));
+  main.appendChild(sp(12, true));
+
+  const right = E('div', { class: 'v grow' });
+  const nd = simDay === 0 ? 1 : (simDay === 5 ? 0 : simDay + 1);
+  right.appendChild(txt(nd === 0 ? '明天 · 週末' : `明天 · 星期${'　一二三四五'[nd]}`, 13, rgba(t.fg,.55), true));
+  right.appendChild(sp(8));
+  if (nd === 0) {
+    right.appendChild(txt('週末放假', 12, rgba(t.fg,.45)));
+  } else {
+    const list = dayCourses(nd);
+    if (!list.length) right.appendChild(txt('無課程', 12, rgba(t.fg,.45)));
+    list.slice(0,4).forEach((c, i) => {
+      if (i > 0) right.appendChild(sp(5));
+      const row = pvRow(c, false, 28);
+      const info = pvInfo();
+      info.appendChild(txt(c.name, 12, cName(c, false)));
+      info.appendChild(txt(metaLine(c, false), 10, cMeta(c, false)));
+      row.appendChild(info);
+      right.appendChild(row);
+    });
+  }
+  main.appendChild(right);
+  return wg;
+}
+
+function pvLarge(width, availableWidth) {
+  const t = theme();
+  const wg = shell(width, 354);
+  const main = E('div', { class: 'v', style: 'padding:16px;height:100%' });
+  wg.appendChild(main);
+
+  const h = E('div', { class: 'h' });
+  h.appendChild(txt(S.title, 15, t.fg, true));
+  h.appendChild(flexSp());
+  h.appendChild(txt(dateStr(), 11, rgba(t.fg,.35)));
+  main.appendChild(h);
+  main.appendChild(sp(10));
+
+  [1,2,3,4,5].forEach(day => {
+    const list = dayCourses(day);
+    const row = E('div', { class: 'h' });
+    const lbl = E('div', { style: 'width:28px;flex:none' });
+    lbl.appendChild(txt('　一二三四五'[day], 12, day === simDay ? rgba(t.fg,.8) : rgba(t.fg,.3), true));
+    row.appendChild(lbl);
+    row.appendChild(sp(6, true));
+
+    if (!list.length) {
+      row.appendChild(txt('—', 11, rgba(t.fg,.15)));
+    } else {
+      const pr = E('div', { class: 'h', style: 'gap:4px' });
+      const labelW = availableWidth - 34;
+      const pillW = Math.floor((labelW - (list.length - 1) * 4) / list.length);
+      list.forEach(c => {
+        const now = (day === simDay) && isNowFor(c, day);
+        const maxChars = Math.max(2, Math.floor(pillW / 16));
+        const label = (c.name || '').length > maxChars ? c.name.slice(0, maxChars) + '…' : (c.name || '');
+        const pill = E('div', {
+          style: `width:${Math.max(pillW,20)}px;height:22px;flex:none;border-radius:6px;padding:0 6px;` +
+                 `display:flex;align-items:center;justify-content:center;background:${cPill(c, now)}`,
+        });
+        pill.appendChild(txt(label, 10, now ? c.color : (S.colorful ? rgba(c.color,.9) : rgba(t.fg,.4))));
+        pr.appendChild(pill);
+      });
+      row.appendChild(pr);
+    }
+    main.appendChild(row);
+    if (day < 5) main.appendChild(sp(8));
+  });
+
+  main.appendChild(sp(12));
+  main.appendChild(E('div', { style: `height:1px;flex:none;background:${rgba(t.fg,.08)}` }));
+  main.appendChild(sp(12));
+  main.appendChild(txt(simDay === 0 ? '週末放假 ☀️' : '今日課程', 12, rgba(t.fg,.5), true));
+  main.appendChild(sp(8));
+
+  if (simDay !== 0) {
+    const list = dayCourses(simDay);
+    if (!list.length) main.appendChild(txt('今天沒有課 🎉', 12, rgba(t.fg,.45)));
+    list.forEach((c, i) => {
+      if (i > 0) main.appendChild(sp(6));
+      const now = isNowFor(c, simDay);
+      const row = pvRow(c, now, 34);
+      const info = pvInfo();
+      const tr = E('div', { class: 'h' });
+      tr.appendChild(txt(timeLabel(c.periods[0]) + '  ', 11, now ? rgba(c.color,.8) : rgba(t.fg,.3)));
+      tr.appendChild(txt(c.name, 13, cName(c, now), true));
+      info.appendChild(tr);
+      info.appendChild(sp(2));
+      info.appendChild(txt(metaLine(c, true), 10, cMeta(c, now)));
+      row.appendChild(info);
+      if (now) pvBadge(row, c);
+      main.appendChild(row);
+    });
+  }
+  return wg;
+}
+
+function renderPreview() {
+  const stage = $('stage'); stage.innerHTML = '';
+  let node;
+  if (pvSize === 'small') node = pvSmall();
+  else if (pvSize === 'medium') node = pvMedium();
+  else if (pvSize === 'large') node = pvLarge(338, 290);
+  else node = pvLarge(686, 620);
+
+  // 超大尺寸放不下時等比縮小，仍保留正確的版面比例
+  const w = parseFloat(node.style.width), h = parseFloat(node.style.height);
+  const avail = Math.max(140, stage.clientWidth - 44);
+  const k = Math.min(1, avail / w);
+  const box = E('div', { style: `width:${Math.round(w*k)}px;height:${Math.round(h*k)}px` });
+  if (k < 1) { node.style.transform = `scale(${k})`; node.style.transformOrigin = 'top left'; }
+  box.appendChild(node);
+  stage.appendChild(box);
+}
+
+/* ═══════════ 產生程式碼 ═══════════ */
+function periodTimeObj() {
+  const o = {};
+  for (let i = 1; i <= S.periodCount; i++) o[i] = S.times[i-1] || DEFAULT_TIMES[i-1] || '08:10';
+  return o;
+}
+// 以「顯示寬度」對齊欄位（中日韓字算 2 格），讓產出的程式碼像手寫的一樣整齊
+function dispWidth(str) {
+  let n = 0;
+  for (const ch of String(str)) n += ch.codePointAt(0) > 0x2e7f ? 2 : 1;
+  return n;
+}
+function coursesLiteral() {
+  const q = s => JSON.stringify(String(s == null ? '' : s));
+  const cells = S.courses.map(c => [
+    `name: ${q(c.name)},`,
+    `type: ${q(c.type || '必')},`,
+    `day: ${c.day},`,
+    `periods: [${c.periods.join(',')}],`,
+    `room: ${q(c.room)},`,
+    `teachers: ${q(c.teachers)},`,
+    `color: ${q(c.color)}`,
+  ]);
+  const widths = cells[0] ? cells[0].map((_, i) => Math.max(...cells.map(r => dispWidth(r[i])))) : [];
+  const rows = cells.map(r =>
+    '  { ' + r.map((cell, i) =>
+      i === r.length - 1 ? cell : cell + ' '.repeat(widths[i] - dispWidth(cell) + 1)
+    ).join('') + ' },'
+  );
+  return rows.length ? '[\n' + rows.join('\n') + '\n]' : '[]';
+}
+// 產生 { key: value, // 註解 } 形式並把註解對齊
+function objLiteral(pairs) {
+  const rows = pairs.map(([k, v]) => `  ${k}: ${v},`);
+  const w = Math.max(...rows.map(dispWidth));
+  return '{\n' + rows.map((r, i) => {
+    const cmt = pairs[i][2];
+    return cmt ? r + ' '.repeat(w - dispWidth(r) + 2) + '// ' + cmt : r;
+  }).join('\n') + '\n}';
+}
+function themeLiteral() {
+  const t = theme();
+  return objLiteral([
+    ['bg', `['${t.bg[0]}', '${t.bg[1]}']`, '背景漸層（上、下）'],
+    ['fg', `'${t.fg}'`, '主文字色'],
+    ['colorful', String(S.colorful), S.colorful ? '每堂課都用自己的顏色' : '只有上課中才上色'],
+    ['accent', `'${S.accent}'`, 'bar | dot | card | none'],
+    ['timeMode', `'${S.timeMode}'`, 'period | clock'],
+    ['showTeacher', String(S.showTeacher), '顯示授課老師'],
+    ['showType', String(S.showType), '顯示必／選修'],
+    ['showBadge', String(S.showBadge), '顯示「上課中」徽章'],
+  ]);
+}
+function notifyLiteral() {
+  return objLiteral([
+    ['enabled', String(S.notify.enabled), '是否排定上課提醒'],
+    ['beforeMin', String(S.notify.beforeMin), '上課前幾分鐘通知'],
+    ['days', String(S.notify.days), '一次排定未來幾天份'],
+    ['firstOnly', String(S.notify.firstOnly), 'true = 每天只提醒第一堂'],
+  ]);
+}
+function generate() {
+  const tpl = $('tpl').textContent.replace(/^\s*\n/, '');
+  return tpl
+    .replace('__TITLE__', () => JSON.stringify(S.title))
+    .replace('__COURSES__', () => coursesLiteral())
+    .replace('__PERIOD_TIME__', () => {
+      const o = periodTimeObj();
+      const items = Object.keys(o).map(k => `${k}: '${o[k]}'`);
+      const lines = [];
+      for (let i = 0; i < items.length; i += 4) lines.push('  ' + items.slice(i, i + 4).join(', ') + ',');
+      return '{\n' + lines.join('\n').replace(/,$/, '') + '\n}';
+    })
+    .replace('__LESSON_MIN__', () => String(S.lessonMin))
+    .replace('__THEME__', () => themeLiteral())
+    .replace('__NOTIFY__', () => notifyLiteral());
+}
+
+function render() {
+  renderGrid();
+  renderPreview();
+}
+
+/* ═══════════ 匯入 ═══════════ */
+function importScript(text) {
+  const grab = (re) => { const m = text.match(re); return m ? m[1] : null; };
+  const arr = grab(/const\s+courses\s*=\s*(\[[\s\S]*?\n\s*\])\s*;/);
+  if (!arr) throw new Error('找不到 courses 陣列');
+  const courses = new Function('return ' + arr)();
+  if (!Array.isArray(courses) || !courses.length) throw new Error('courses 陣列是空的');
+
+  S.courses = courses.map(c => ({
+    name: String(c.name || ''),
+    type: String(c.type || '必'),
+    day: Math.min(5, Math.max(1, +c.day || 1)),
+    periods: Array.isArray(c.periods) ? c.periods.map(Number).filter(n => n > 0).sort((a,b)=>a-b) : [],
+    room: String(c.room || ''),
+    teachers: String(c.teachers || ''),
+    color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#5ba4f5',
+  }));
+
+  const title = grab(/const\s+TITLE\s*=\s*(['"][\s\S]*?['"])\s*;/);
+  if (title) { try { S.title = new Function('return ' + title)(); } catch (e) {} }
+
+  const pt = grab(/const\s+PERIOD_TIME\s*=\s*(\{[\s\S]*?\})\s*;/);
+  if (pt) {
+    try {
+      const o = new Function('return ' + pt)();
+      const keys = Object.keys(o).map(Number).filter(n => n >= 1).sort((a,b)=>a-b);
+      if (keys.length) {
+        S.periodCount = Math.min(14, keys[keys.length-1]);
+        S.times = Array.from({length: S.periodCount}, (_, i) => o[i+1] || DEFAULT_TIMES[i] || '08:10');
+      }
+    } catch (e) {}
+  }
+
+  const lm = grab(/const\s+LESSON_MIN\s*=\s*(\d+)/);
+  if (lm) S.lessonMin = +lm;
+
+  const th = grab(/const\s+THEME\s*=\s*(\{[\s\S]*?\n\})\s*;/);
+  if (th) {
+    try {
+      const o = new Function('return ' + th.replace(/\/\/[^\n]*/g, ''))();
+      if (Array.isArray(o.bg)) {
+        const hit = THEMES.find(t => t.bg[0].toLowerCase() === String(o.bg[0]).toLowerCase());
+        if (hit) S.theme = hit.id;
+      }
+      if (typeof o.colorful === 'boolean') S.colorful = o.colorful;
+      if (o.accent) S.accent = o.accent;
+      if (o.timeMode) S.timeMode = o.timeMode;
+      if (typeof o.showTeacher === 'boolean') S.showTeacher = o.showTeacher;
+      if (typeof o.showType === 'boolean') S.showType = o.showType;
+      if (typeof o.showBadge === 'boolean') S.showBadge = o.showBadge;
+    } catch (e) {}
+  }
+
+  const nt = grab(/const\s+NOTIFY\s*=\s*(\{[\s\S]*?\n\})\s*;/);
+  if (nt) {
+    try {
+      const o = new Function('return ' + nt.replace(/\/\/[^\n]*/g, ''))();
+      if (typeof o.enabled === 'boolean') S.notify.enabled = o.enabled;
+      if (Number.isFinite(+o.beforeMin)) S.notify.beforeMin = +o.beforeMin;
+      if (Number.isFinite(+o.days)) S.notify.days = +o.days;
+      if (typeof o.firstOnly === 'boolean') S.notify.firstOnly = o.firstOnly;
+    } catch (e) {}
+  }
+
+  save();
+  boot();
+  toast(`已匯入 ${S.courses.length} 門課`);
+}
+
+/* ═══════════ 抽屜 ═══════════ */
+function openDrawer(sec) {
+  $('drawer').classList.add('on');
+  $('scrim').classList.add('on');
+  showSec(sec || 'look');
+}
+function closeDrawer() {
+  $('drawer').classList.remove('on');
+  $('scrim').classList.remove('on');
+}
+function showSec(v) {
+  document.querySelectorAll('.sec[data-sec]').forEach(s => s.classList.toggle('on', s.dataset.sec === v));
+  [...$('dtabs').children].forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $('drawerTitle').textContent = { look: '外觀', bell: '上課提醒', time: '節次時間' }[v];
+  if (v === 'look') repaintPicks();
+  $('drawer').querySelector('.dbody').scrollTop = 0;
+}
+
+/* ═══════════ 事件 ═══════════ */
+$('btnLook').onclick = () => openDrawer('look');
+$('btnBell').onclick = () => openDrawer('bell');
+$('btnPeriods').onclick = () => { closeMenu(); openDrawer('time'); };
+$('drawerClose').onclick = closeDrawer;
+$('scrim').onclick = closeDrawer;
+[...$('dtabs').children].forEach(b => { b.onclick = () => showSec(b.dataset.v); });
+
+function closeMenu() { $('moreMenu').open = false; }
+document.addEventListener('click', e => {
+  if (!$('moreMenu').contains(e.target)) $('moreMenu').open = false;
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeMenu(); } });
+
+$('btnAdd').onclick = () => {
+  const day = simDay || 1;
+  let p = 1;
+  const used = new Set();
+  S.courses.filter(c => c.day === day).forEach(c => c.periods.forEach(x => used.add(x)));
+  while (used.has(p) && p < S.periodCount) p++;
+  openCourse(null, { day, periods: [p] });
+};
+$('btnClear').onclick = () => {
+  if (!S.courses.length) return;
+  if (!confirm('確定要清空整張課表嗎？')) return;
+  S.courses = []; save(); render(); toast('已清空');
+};
+$('btnReset').onclick = () => {
+  closeMenu();
+  if (!confirm('確定要還原成範例課表嗎？目前的編輯會消失。')) return;
+  S = structuredClone(DEFAULT_STATE); save(); boot(); toast('已重設');
+};
+$('btnCopy').onclick = () => { closeMenu(); copyCode(); };
+$('btnShowCode').onclick = () => { closeMenu(); $('code').value = generate(); $('dlgCode').showModal(); };
+$('codeClose').onclick = () => $('dlgCode').close();
+$('codeCopy').onclick = copyCode;
+
+async function copyCode() {
+  try { await navigator.clipboard.writeText(generate()); toast('已複製程式碼'); }
+  catch (e) { $('code').value = generate(); $('code').select(); document.execCommand('copy'); toast('已複製程式碼'); }
+}
+
+$('btnDownload').onclick = () => {
+  const name = (S.filename || '課表 Widget.js').replace(/\.js$/i, '') + '.js';
+  const blob = new Blob([generate()], { type: 'text/javascript;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast('已下載 ' + name);
+};
+$('btnImport').onclick = () => { closeMenu(); $('importText').value = ''; $('dlgImport').showModal(); };
+$('impCancel').onclick = () => $('dlgImport').close();
+$('impOk').onclick = () => {
+  try { importScript($('importText').value); $('dlgImport').close(); }
+  catch (e) { alert('匯入失敗：' + e.message); }
+};
+$('fileIn').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { $('importText').value = String(r.result); };
+  r.readAsText(f, 'utf-8');
+};
+[...$('pvTabs').children].forEach(b => {
+  b.onclick = () => {
+    pvSize = b.dataset.v;
+    [...$('pvTabs').children].forEach(x => x.classList.toggle('on', x === b));
+    renderPreview();
+  };
+});
+
+/* ═══════════ 啟動 ═══════════ */
+function boot() {
+  bindSettings();
+  buildTimes();
+  buildSim();
+  buildLookPanel();
+  [...$('pvTabs').children].forEach(x => x.classList.toggle('on', x.dataset.v === pvSize));
+  render();
+}
+
+// 預設模擬時間 = 現在
+(function initSim() {
+  const d = new Date().getDay();
+  simDay = (d === 0 || d === 6) ? 0 : d;
+  const total = new Date().getHours() * 60 + new Date().getMinutes();
+  simPeriod = 0;
+  for (let i = 0; i < S.periodCount; i++) {
+    const [h, m] = (S.times[i] || '08:10').split(':').map(Number);
+    const s = h * 60 + m;
+    if (total >= s && total < s + S.lessonMin) { simPeriod = i + 1; break; }
+  }
+})();
+
+boot();
+</script>
+</body>
+</html>
