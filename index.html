@@ -634,10 +634,13 @@ function timeRange(c) {
   return b === a ? `第${a}節` : `第${a}–${b}節`;
 }
 
+// 單一個「必」字看不出是什麼，寫成必修／選修才讀得懂
+const TYPE_LABEL = { '必': '必修', '選': '選修', '通': '通識' };
+
 function metaLine(c, withTeacher) {
   let s = `🏛️ ${c.room}`;
   if (withTeacher && THEME.showTeacher && c.teachers) s += `  👤 ${c.teachers}`;
-  if (THEME.showType && c.type) s += `  ${c.type}`;
+  if (THEME.showType && c.type) s += `  ${TYPE_LABEL[c.type] || c.type}`;
   return s;
 }
 
@@ -991,22 +994,29 @@ function bigHeader(main) {
 }
 
 // 「現在 · 工程數學 13:10–16:00 剩 42 分」的狀態列
-function statusLine(main) {
+// 大 Widget 只有 306pt 寬，三段擠一行會互相壓縮，所以拆兩行（twoLines）
+function statusLine(main, twoLines) {
   const a = agenda();
   const focus = a.now || a.next;
-  const row = main.addStack();
-  row.layoutHorizontally();
-  row.centerAlignContent();
 
   if (!focus) {
-    const t = row.addText('本週沒有排課');
+    const t = main.addText('本週沒有排課');
     t.font = Font.systemFont(10);
     t.textColor = dim(FG, 0.3);
     return;
   }
 
   const isNow = !!a.now;
-  const lb = row.addText(isNow ? '上課中' : (a.nextDay === getTodayDay() ? '下一堂' : `星期${DAY_NAMES[a.nextDay]}`));
+  const head = isNow ? '上課中' : (a.nextDay === getTodayDay() ? '下一堂' : `星期${DAY_NAMES[a.nextDay]}`);
+  const left = isNow ? untilText(endMin(focus)) : untilText(startMin(focus));
+  const sameDay = isNow || a.nextDay === getTodayDay();
+  const meta = `${timeRange(focus)} · ${metaLine(focus, true)}${left && sameDay ? `　${isNow ? '剩' : '再'} ${left}` : ''}`;
+
+  const row = main.addStack();
+  row.layoutHorizontally();
+  row.centerAlignContent();
+
+  const lb = row.addText(head);
   lb.font = Font.boldSystemFont(10);
   lb.textColor = isNow ? col(focus.color) : dim(FG, 0.35);
   row.addSpacer(8);
@@ -1015,15 +1025,21 @@ function statusLine(main) {
   nm.font = Font.boldSystemFont(11);
   nm.textColor = isNow ? col(focus.color) : dim(FG, 0.6);
   nm.lineLimit = 1;
-  row.addSpacer(8);
+  nm.minimumScaleFactor = 0.8;
 
-  const left = isNow ? untilText(endMin(focus)) : untilText(startMin(focus));
-  const sameDay = isNow || a.nextDay === getTodayDay();
-  const mt = row.addText(`${timeRange(focus)} · ${metaLine(focus, true)}${left && sameDay ? `　${isNow ? '剩' : '再'} ${left}` : ''}`);
+  if (twoLines) {
+    row.addSpacer();
+    main.addSpacer(2);
+  } else {
+    row.addSpacer(8);
+  }
+
+  const mt = (twoLines ? main : row).addText(meta);
   mt.font = Font.systemFont(10);
   mt.textColor = dim(FG, 0.35);
   mt.lineLimit = 1;
-  row.addSpacer();
+  mt.minimumScaleFactor = 0.8;
+  if (!twoLines) row.addSpacer();
 }
 
 // 一格課表格子；同一門課連上多節時只有第一格寫課名
@@ -1084,10 +1100,10 @@ function buildLarge(widget) {
 
   if (pick.day === 0) return;
 
-  // 354 - 32(內距) - 27(標題) - 21(區塊標題) - 26(明天摘要) = 248
+  // 354 - 32(內距) - 27(標題) - 21(區塊標題) - 31(兩行狀態列) = 243
   const n = PERIODS.length;
   const gap = n > 10 ? 2 : 3;
-  const cellH = Math.max(13, Math.floor((248 - (n - 1) * gap) / n));
+  const cellH = Math.max(13, Math.floor((243 - (n - 1) * gap) / n));
   const nameSize = Math.max(9, Math.min(11, cellH - 12));
   const timeW = 44, cellW = 306 - timeW - 6;
   const list = getDayCourses(pick.day);
@@ -1124,8 +1140,8 @@ function buildLarge(widget) {
     }
   });
 
-  main.addSpacer(10);
-  statusLine(main);
+  main.addSpacer();   // 剩下的空間留在時間軸與狀態列之間
+  statusLine(main, true);
 }
 
 // ── 超大 Widget：整週課表格線 + 狀態列 ────────────────────
@@ -1765,10 +1781,12 @@ function openCourse(idx, preset) {
   two.appendChild(roomW); two.appendChild(teaW);
   form.appendChild(two);
 
+  // 存的還是單字（跟舊腳本相容），只有顯示改成看得懂的字
   const typeSeg = E('div', { class: 'seg' });
   ['必','選','通','其他'].forEach(t => {
-    const b = E('button', { class: (c.type === t ? 'on' : ''), text: t }); b.type = 'button';
-    b.onclick = () => { c.type = t; [...typeSeg.children].forEach(x => x.classList.toggle('on', x.textContent === t)); };
+    const b = E('button', { class: (c.type === t ? 'on' : ''), text: TYPE_LABEL[t] || t }); b.type = 'button';
+    b.dataset.v = t;
+    b.onclick = () => { c.type = t; [...typeSeg.children].forEach(x => x.classList.toggle('on', x.dataset.v === t)); };
     typeSeg.appendChild(b);
   });
   form.appendChild(fld('必修／選修', typeSeg));
@@ -1857,10 +1875,13 @@ function timeRange(c) {
   }
   return b === a ? `第${a}節` : `第${a}–${b}節`;
 }
+// 單一個「必」字看不出是什麼，寫成必修／選修才讀得懂
+const TYPE_LABEL = { '必': '必修', '選': '選修', '通': '通識' };
+
 function metaLine(c, withTeacher) {
   let s = `🏛️ ${c.room || ''}`;
   if (withTeacher && S.showTeacher && c.teachers) s += `  👤 ${c.teachers}`;
-  if (S.showType && c.type) s += `  ${c.type}`;
+  if (S.showType && c.type) s += `  ${TYPE_LABEL[c.type] || c.type}`;
   return s;
 }
 // 中文字算 2 格，依膠囊寬度截字
@@ -2113,26 +2134,34 @@ function pvHeader(main) {
   main.appendChild(h);
 }
 
-function pvStatusLine(main) {
+// 大 Widget 只有 306pt 寬，三段擠一行會互相壓縮，所以拆兩行（twoLines）
+function pvStatusLine(main, twoLines) {
   const t = theme();
   const a = agenda();
   const focus = a.now || a.next;
-  const row = E('div', { class: 'h' });
-  if (!focus) {
-    row.appendChild(txt('本週沒有排課', 10, rgba(t.fg,.3)));
-    main.appendChild(row);
-    return;
-  }
+  const row = E('div', { class: 'h', style: 'flex:none' });
+  main.appendChild(row);
+  if (!focus) { row.appendChild(txt('本週沒有排課', 10, rgba(t.fg,.3))); return; }
+
   const isNow = !!a.now;
+  const left = isNow ? untilText(endMin(focus)) : untilText(startMin(focus));
+  const tail = (left && (isNow || a.nextDay === simDay)) ? `　${isNow ? '剩' : '再'} ${left}` : '';
+  const meta = `${timeRange(focus)} · ${metaLine(focus, true)}${tail}`;
+
   row.appendChild(txt(isNow ? '上課中' : (a.nextDay === simDay ? '下一堂' : `星期${dayName(a.nextDay)}`),
     10, isNow ? focus.color : rgba(t.fg,.35), true));
   row.appendChild(sp(8, true));
   row.appendChild(txt(focus.name, 11, isNow ? focus.color : rgba(t.fg,.6), true));
-  row.appendChild(sp(8, true));
-  const left = isNow ? untilText(endMin(focus)) : untilText(startMin(focus));
-  const tail = (left && (isNow || a.nextDay === simDay)) ? `　${isNow ? '剩' : '再'} ${left}` : '';
-  row.appendChild(txt(`${timeRange(focus)} · ${metaLine(focus, true)}${tail}`, 10, rgba(t.fg,.35)));
-  main.appendChild(row);
+
+  if (twoLines) {
+    row.appendChild(flexSp());
+    main.appendChild(sp(2));
+    main.appendChild(txt(meta, 10, rgba(t.fg,.35)));
+  } else {
+    row.appendChild(sp(8, true));
+    row.appendChild(txt(meta, 10, rgba(t.fg,.35)));
+    row.appendChild(flexSp());
+  }
 }
 
 // 一格課表格子；同一門課連上多節時只有第一格寫課名
@@ -2177,7 +2206,7 @@ function pvLarge() {
   const ps = pvPeriods();
   const n = ps.length;
   const gap = n > 10 ? 2 : 3;
-  const cellH = Math.max(13, Math.floor((248 - (n - 1) * gap) / n));
+  const cellH = Math.max(13, Math.floor((243 - (n - 1) * gap) / n));
   const nameSize = Math.max(9, Math.min(11, cellH - 12));
   const timeW = 44, cellW = 306 - timeW - 6;
   const list = dayCourses(pick.day);
@@ -2208,8 +2237,8 @@ function pvLarge() {
     main.appendChild(row);
   });
 
-  main.appendChild(sp(10));
-  pvStatusLine(main);
+  main.appendChild(flexSp());   // 剩下的空間留在時間軸與狀態列之間
+  pvStatusLine(main, true);
   return wg;
 }
 
