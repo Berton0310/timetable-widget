@@ -99,10 +99,13 @@ header .logo{font-size:20px}
 /* ③ 提醒與下載 */
 .shipgrid{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
 
+/* grid 子項預設 min-width:auto，會被內容（預覽、節次 chip）撐開，
+   所以連單欄也要寫 minmax(0,1fr)，否則窄螢幕整頁會被推到橫向捲動 */
 @media (max-width:1000px){
-  .lookgrid,.shipgrid{grid-template-columns:1fr}
+  .lookgrid,.shipgrid{grid-template-columns:minmax(0,1fr)}
   .lookgrid > .pv-card{position:static}
 }
+
 
 /* 可摺疊卡（節次時間） */
 .card.fold{padding:0}
@@ -213,8 +216,8 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 
 /* 視覺化選項卡 */
 .picks{display:grid;gap:9px}
-.picks.c2{grid-template-columns:1fr 1fr}
-.picks.c4{grid-template-columns:repeat(4,1fr)}
+.picks.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.picks.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
 .pick{
   border:2px solid var(--line);border-radius:12px;background:#fff;padding:8px;
   display:flex;flex-direction:column;align-items:center;gap:7px;transition:.15s;
@@ -274,6 +277,54 @@ details summary{cursor:pointer}
 .wg .one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .wg .grow{flex:1;min-width:0}
 
+/* ── 手機 / 平板直式 ─────────────────────────── */
+@media (max-width:760px){
+  /* 標題列讓它捲走，步驟列自己黏在最上面，不用去算 header 高度 */
+  header{position:static;padding:9px 12px;gap:6px}
+  #fTitle{width:auto;flex:1;min-width:0}
+  .steps{top:0;padding:0 6px}
+  .steps button{padding:11px 10px;font-size:13px;gap:6px}
+
+  .pages{padding:14px 12px 40px}
+  .card{padding:13px}
+  .card + .card{margin-top:12px}
+  .sheet{padding:16px}
+
+  /* iOS 聚焦時字級小於 16px 會自動放大整頁 */
+  input[type=text],input[type=number],input[type=time],select,textarea,.ptimes input{font-size:16px}
+
+  :root{--cellh:50px}
+  .tt{grid-template-columns:46px repeat(5,minmax(0,1fr));gap:4px}
+  .tt .tl{padding-right:5px}
+  .tt .tl b{font-size:12px}
+  .tt .tl span{font-size:9.5px}
+  .tt .hd{font-size:12px}
+  .tt .blk{padding:5px 6px}
+  .tt .blk .n{font-size:11.5px}
+  .tt .blk .m{display:none}   /* 教室老師塞不下，點開課程來看 */
+  .legend{gap:9px;font-size:11.5px;margin-top:12px}
+
+  .picks.c4{grid-template-columns:repeat(2,1fr)}
+  .pv-stage{padding:14px}
+}
+
+@media (max-width:420px){
+  .pick{padding:5px}
+  .tt{grid-template-columns:38px repeat(5,minmax(0,1fr));gap:3px}
+  .tt .hd{font-size:11px;padding:4px 0}
+  .tt .blk{padding:4px 5px}
+  .tt .blk .n{font-size:10.5px}
+  .chip{min-width:30px;font-size:12px}
+}
+
+/* 觸控裝置：手指在課表上要能捲動頁面，所以只鎖橫向手勢 */
+.touch-only{display:none}
+@media (pointer:coarse){
+  .tt{touch-action:pan-y}
+  .mouse-only{display:none}
+  .touch-only{display:inline}
+}
+
 </style>
 </head>
 <body>
@@ -317,9 +368,10 @@ details summary{cursor:pointer}
       <div class="tt" id="tt"></div>
       <div class="legend">
         <span>👆 點空格新增</span>
-        <span>↕ 上下拖曳空格可一次選多節</span>
+        <span class="mouse-only">↕ 上下拖曳空格可一次選多節</span>
         <span>✋ 拖曳課程可搬到別的時段</span>
-        <span>⤓ 拉課程下緣可調長度</span>
+        <span class="mouse-only">⤓ 拉課程下緣可調長度</span>
+        <span class="touch-only">✏️ 點課程可改時段與長度</span>
       </div>
     </div>
 
@@ -1660,7 +1712,14 @@ function endDrag(e) {
   }
 }
 $('tt').addEventListener('pointerup', endDrag);
-$('tt').addEventListener('pointercancel', endDrag);
+// 手指在課表上往下滑時瀏覽器會接手捲動並送出 pointercancel，
+// 這種取消不該被當成「點一下」而跳出新增課程
+$('tt').addEventListener('pointercancel', () => {
+  if (!drag) return;
+  drag = null;
+  document.body.classList.remove('dragging');
+  clearDrop();
+});
 
 function range(a, b) { const o = []; for (let i = a; i <= b; i++) o.push(i); return o; }
 
@@ -2211,9 +2270,11 @@ function renderPreview() {
   else if (pvSize === 'large') node = pvLarge();
   else node = pvExtraLarge();
 
-  // 超大尺寸放不下時等比縮小，仍保留正確的版面比例
+  // 放不下時等比縮小，仍保留正確的版面比例（內距在窄螢幕會變小，所以實際去讀）
   const w = parseFloat(node.style.width), h = parseFloat(node.style.height);
-  const avail = Math.max(140, stage.clientWidth - 44);
+  const cs = getComputedStyle(stage);
+  const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const avail = Math.max(140, stage.clientWidth - pad);
   const k = Math.min(1, avail / w);
   const box = E('div', { style: `width:${Math.round(w*k)}px;height:${Math.round(h*k)}px` });
   if (k < 1) { node.style.transform = `scale(${k})`; node.style.transformOrigin = 'top left'; }
