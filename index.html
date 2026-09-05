@@ -574,17 +574,24 @@ const NOTIFY = __NOTIFY__;
 const DAY_NAMES = ['', '一', '二', '三', '四', '五'];
 const FG = THEME.fg;
 
-// 中 Widget 每欄課程列表的可用高度（pt）：158 - 28(內距) - 24(標題+間距)
-const MED_LIST_H = 106;
+// 中 Widget 每欄課程列表的可用高度（pt）：158 - 28(內距) - 25(標題+間距)
+const MED_LIST_H = 105;
 
 function col(hex) { return new Color(hex, 1); }
 function dim(hex, a) { return new Color(hex, a); }
+
+// 徽章底色是整塊課程色，字要自動選黑或白才讀得到
+function onColor(hex) {
+  const h = String(hex).replace('#', '');
+  const r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#101010' : '#ffffff';
+}
 
 function cName(c, isNow) { return isNow ? col(c.color) : (THEME.colorful ? dim(c.color, 0.85) : dim(FG, 0.40)); }
 function cMeta(c, isNow) { return isNow ? dim(c.color, 0.70) : (THEME.colorful ? dim(c.color, 0.50) : dim(FG, 0.25)); }
 function cBar(c, isNow)  { return isNow ? col(c.color) : (THEME.colorful ? dim(c.color, 0.55) : dim(FG, 0.15)); }
 // 課表格子的底色；同一門課連上多節要看得出是一整塊，所以比其他底色重一點
-function cPill(c, isNow) { return isNow ? dim(c.color, 0.30) : (THEME.colorful ? dim(c.color, 0.22) : dim(FG, 0.13)); }
+function cPill(c, isNow) { return isNow ? dim(c.color, 0.38) : (THEME.colorful ? dim(c.color, 0.22) : dim(FG, 0.13)); }
 const EMPTY_CELL = 0.035;
 
 function getTodayDay() {
@@ -644,9 +651,9 @@ function metaLine(c, withTeacher) {
   return s;
 }
 
-// 中文字算 2 格，依膠囊寬度截字（比固定字數準得多）
-function fitLabel(name, boxW) {
-  const budget = Math.max(4, Math.floor((boxW - 12) / 5.5));
+// 中文字算 2 格，依膠囊寬度與字級截字（比固定字數準得多）
+function fitLabel(name, boxW, size) {
+  const budget = Math.max(4, Math.floor((boxW - 12) / ((size || 11) / 2)));
   let w = 0, out = '';
   for (const ch of String(name || '')) {
     const cw = ch.codePointAt(0) > 0x2e7f ? 2 : 1;
@@ -720,16 +727,23 @@ function courseRow(parent, c, isNow, barH) {
   return row;
 }
 
-function addBadge(row, c) {
+// 「上課中」徽章：底色整塊填滿課程色，字用對比色，才不會和同色系的底色糊成一片
+function badge(parent, c, size, padV) {
+  const b = parent.addStack();
+  const pv = padV == null ? 3 : padV;
+  b.setPadding(pv, 7, pv, 7);
+  b.backgroundColor = col(c.color);
+  b.cornerRadius = 7;
+  const t = b.addText('上課中');
+  t.font = Font.boldSystemFont(size || 11);
+  t.textColor = col(onColor(c.color));
+  return b;
+}
+
+function addBadge(row, c, size, padV) {
   if (!THEME.showBadge) return;
   row.addSpacer();
-  const b = row.addStack();
-  b.setPadding(3, 6, 3, 6);
-  b.backgroundColor = dim(c.color, 0.22);
-  b.cornerRadius = 6;
-  const t = b.addText('上課中');
-  t.font = Font.boldSystemFont(9);
-  t.textColor = col(c.color);
+  badge(row, c, size, padV);
 }
 
 function placeholder(stack, text, size) {
@@ -821,17 +835,17 @@ function buildSmall(widget) {
   titleRow.layoutHorizontally();
   titleRow.centerAlignContent();
   const tt = titleRow.addText(today === 0 ? '週末' : `星期${DAY_NAMES[today]}`);
-  tt.font = Font.boldSystemFont(13);
+  tt.font = Font.boldSystemFont(14);
   tt.textColor = dim(FG, 0.55);
   titleRow.addSpacer();
   const dt = titleRow.addText(formatDate());
-  dt.font = Font.systemFont(11);
+  dt.font = Font.systemFont(12);
   dt.textColor = dim(FG, 0.35);
 
   const focus = a.now || a.next;
   if (!focus) {
     stack.addSpacer();
-    placeholder(stack, today === 0 ? '週末放假 ☀️' : '沒有課了 🎉', 14).centerAlignText();
+    placeholder(stack, today === 0 ? '週末放假 ☀️' : '沒有課了 🎉', 15).centerAlignText();
     stack.addSpacer();
     return;
   }
@@ -855,7 +869,7 @@ function buildSmall(widget) {
   if (THEME.showBadge || !isNow) {
     const head = isNow ? '上課中' : (a.nextDay === today ? '下一堂' : `星期${DAY_NAMES[a.nextDay]}`);
     const lb = box.addText(head + (left && sameDay ? ` · ${isNow ? '剩' : '再'} ${left}` : ''));
-    lb.font = Font.boldSystemFont(10);
+    lb.font = Font.boldSystemFont(11);
     lb.textColor = isNow ? col(focus.color) : dim(FG, 0.35);
     lb.lineLimit = 1;
     lb.minimumScaleFactor = 0.8;
@@ -863,20 +877,20 @@ function buildSmall(widget) {
   }
 
   const nm = box.addText(focus.name);
-  nm.font = Font.boldSystemFont(18);
+  nm.font = Font.boldSystemFont(20);
   nm.textColor = isNow ? col(focus.color) : (THEME.colorful ? dim(focus.color, 0.9) : col(FG));
   nm.lineLimit = 2;
   nm.minimumScaleFactor = 0.6;
   box.addSpacer(3);
 
   const tm = box.addText(timeRange(focus));
-  tm.font = Font.systemFont(10);
+  tm.font = Font.systemFont(12);
   tm.textColor = isNow ? dim(focus.color, 0.75) : dim(FG, 0.45);
   tm.lineLimit = 1;
   tm.minimumScaleFactor = 0.8;
 
   const rm = box.addText(metaLine(focus, false));
-  rm.font = Font.systemFont(10);
+  rm.font = Font.systemFont(12);
   rm.textColor = isNow ? dim(focus.color, 0.6) : dim(FG, 0.3);
   rm.lineLimit = 1;
   rm.minimumScaleFactor = 0.8;
@@ -888,7 +902,7 @@ function buildSmall(widget) {
   if (after) {
     const when = a.nextDay === today ? '' : `星期${DAY_NAMES[a.nextDay]} `;
     const ft = stack.addText(`接著 ${when}${timeRange(after).split('–')[0]} ${after.name}`);
-    ft.font = Font.systemFont(9);
+    ft.font = Font.systemFont(11);
     ft.textColor = dim(FG, 0.3);
     ft.lineLimit = 1;
     ft.minimumScaleFactor = 0.7;
@@ -930,11 +944,11 @@ function dayColumn(stack, label, day, cur, titleAlpha) {
   const list = day === 0 ? [] : getDayCourses(day);
   const plan = listPlan(list.length, MED_LIST_H, 28, 5);
   const shown = Math.min(list.length, plan.max);
-  sectionTitle(stack, label, 13, titleAlpha, list.length - plan.max);
+  sectionTitle(stack, label, 14, titleAlpha, list.length - plan.max);
   stack.addSpacer(8);
 
-  if (day === 0) { placeholder(stack, '放假囉 ☀️', 12); return; }
-  if (!list.length) { placeholder(stack, '沒有課 🎉', 12); return; }
+  if (day === 0) { placeholder(stack, '放假囉 ☀️', 13); return; }
+  if (!list.length) { placeholder(stack, '沒有課 🎉', 13); return; }
 
   stack.addSpacer();   // 課少時把列表置中，不要黏在上面留一塊空白
   const pad = THEME.accent === 'card' ? 12 : 0;
@@ -942,8 +956,8 @@ function dayColumn(stack, label, day, cur, titleAlpha) {
   const rowH = big
     ? Math.max(28, Math.min(52, Math.floor((MED_LIST_H - (shown - 1) * plan.gap) / shown) - pad))
     : plan.rowH;
-  const nameSize = rowH >= 46 ? 15 : (rowH >= 34 ? 13 : 12);
-  const metaSize = rowH >= 46 ? 11 : 10;
+  const nameSize = rowH >= 46 ? 16 : (rowH >= 34 ? 14 : 13);
+  const metaSize = rowH >= 46 ? 12 : 11;
 
   list.slice(0, shown).forEach((c, i) => {
     if (i > 0) stack.addSpacer(plan.gap);
@@ -953,11 +967,16 @@ function dayColumn(stack, label, day, cur, titleAlpha) {
     const info = row.addStack();
     info.layoutVertically();
 
-    const nm = info.addText(c.name);
+    // 徽章只掛在課名那一行，下面的教室／老師才不會被擠掉
+    const nameRow = info.addStack();
+    nameRow.layoutHorizontally();
+    nameRow.centerAlignContent();
+    const nm = nameRow.addText(c.name);
     nm.font = Font.boldSystemFont(nameSize);
     nm.textColor = cName(c, isNow);
     nm.lineLimit = 1;
     nm.minimumScaleFactor = 0.8;
+    if (isNow) addBadge(nameRow, c, 11, 2);
 
     // 行高夠就把教室／老師另起一行，不夠就併進時間那行
     const twoLines = rowH >= 46;
@@ -984,12 +1003,12 @@ function bigHeader(main) {
   hRow.layoutHorizontally();
   hRow.centerAlignContent();
   const title = hRow.addText(TITLE);
-  title.font = Font.boldSystemFont(15);
+  title.font = Font.boldSystemFont(16);
   title.textColor = col(FG);
   title.lineLimit = 1;
   hRow.addSpacer();
   const dt = hRow.addText(formatDate());
-  dt.font = Font.systemFont(11);
+  dt.font = Font.systemFont(12);
   dt.textColor = dim(FG, 0.35);
 }
 
@@ -1001,7 +1020,7 @@ function statusLine(main, twoLines) {
 
   if (!focus) {
     const t = main.addText('本週沒有排課');
-    t.font = Font.systemFont(10);
+    t.font = Font.systemFont(12);
     t.textColor = dim(FG, 0.3);
     return;
   }
@@ -1016,13 +1035,18 @@ function statusLine(main, twoLines) {
   row.layoutHorizontally();
   row.centerAlignContent();
 
-  const lb = row.addText(head);
-  lb.font = Font.boldSystemFont(10);
-  lb.textColor = isNow ? col(focus.color) : dim(FG, 0.35);
+  // 上課中就用實心徽章，一眼看得出是哪一種狀態
+  if (isNow && THEME.showBadge) {
+    badge(row, focus);
+  } else {
+    const lb = row.addText(head);
+    lb.font = Font.boldSystemFont(12);
+    lb.textColor = isNow ? col(focus.color) : dim(FG, 0.35);
+  }
   row.addSpacer(8);
 
   const nm = row.addText(focus.name);
-  nm.font = Font.boldSystemFont(11);
+  nm.font = Font.boldSystemFont(13);
   nm.textColor = isNow ? col(focus.color) : dim(FG, 0.6);
   nm.lineLimit = 1;
   nm.minimumScaleFactor = 0.8;
@@ -1035,7 +1059,7 @@ function statusLine(main, twoLines) {
   }
 
   const mt = (twoLines ? main : row).addText(meta);
-  mt.font = Font.systemFont(10);
+  mt.font = Font.systemFont(12);
   mt.textColor = dim(FG, 0.35);
   mt.lineLimit = 1;
   mt.minimumScaleFactor = 0.8;
@@ -1055,17 +1079,22 @@ function gridCell(row, c, p, isNow, w, h, nameSize) {
   }
   cell.backgroundColor = cPill(c, isNow);
   cell.setPadding(0, 6, 0, 6);
+  // 正在上的那格描一圈實心外框，格子太小塞不下徽章時就靠它辨識
+  if (isNow) {
+    cell.borderWidth = 2;
+    cell.borderColor = col(c.color);
+  }
 
   const idx = c.periods.indexOf(p);
   if (idx === 0) {
-    const t = cell.addText(fitLabel(c.name, w));
+    const t = cell.addText(fitLabel(c.name, w, nameSize));
     t.font = Font.boldSystemFont(nameSize);
     t.textColor = cName(c, isNow);
     t.lineLimit = 1;
     t.minimumScaleFactor = 0.7;
   } else if (idx === 1 && c.room && h >= 20) {
-    const t = cell.addText(fitLabel(`🏛️ ${c.room}`, w));
-    t.font = Font.systemFont(Math.max(8, nameSize - 1));
+    const t = cell.addText(fitLabel(`🏛️ ${c.room}`, w, nameSize - 1));
+    t.font = Font.systemFont(Math.max(10, nameSize - 1));
     t.textColor = cMeta(c, isNow);
     t.lineLimit = 1;
     t.minimumScaleFactor = 0.7;
@@ -1093,18 +1122,19 @@ function buildLarge(widget) {
                     : (today === 0 ? `週末放假 ☀️ · 星期${DAY_NAMES[pick.day]}課表`
                                    : `今天沒課 🎉 · 星期${DAY_NAMES[pick.day]}課表`));
   const lb = main.addText(label);
-  lb.font = Font.boldSystemFont(12);
+  lb.font = Font.boldSystemFont(13);
   lb.textColor = dim(FG, 0.5);
   lb.lineLimit = 1;
   main.addSpacer(6);
 
   if (pick.day === 0) return;
 
-  // 354 - 32(內距) - 27(標題) - 21(區塊標題) - 31(兩行狀態列) = 243
+  // 354 - 32(內距) - 28(標題) - 22(區塊標題) - 37(兩行狀態列) - 4(中文行高餘裕) = 231
   const n = PERIODS.length;
   const gap = n > 10 ? 2 : 3;
-  const cellH = Math.max(13, Math.floor((243 - (n - 1) * gap) / n));
-  const nameSize = Math.max(9, Math.min(11, cellH - 12));
+  const cellH = Math.max(13, Math.floor((231 - (n - 1) * gap) / n));
+  const nameSize = Math.max(10, Math.min(13, cellH - 6));
+  const timeSize = Math.max(9, Math.min(11, cellH - 3));
   const timeW = 44, cellW = 306 - timeW - 6;
   const list = getDayCourses(pick.day);
 
@@ -1118,7 +1148,7 @@ function buildLarge(widget) {
     tw.size = new Size(timeW, cellH);
     tw.centerAlignContent();
     const tl = tw.addText(periodLabel(p));
-    tl.font = Font.systemFont(9);
+    tl.font = Font.systemFont(timeSize);
     tl.textColor = dim(FG, 0.3);
     row.addSpacer(6);
 
@@ -1127,12 +1157,12 @@ function buildLarge(widget) {
     const cell = gridCell(row, c, p, isNow, cellW, cellH, nameSize);
     // 只有課名那一格右邊掛東西：上課中就掛徽章，否則掛教室／老師
     if (c && c.periods.indexOf(p) === 0) {
-      if (isNow && THEME.showBadge) {
-        addBadge(cell, c);
+      if (isNow && THEME.showBadge && cellH >= 18) {
+        addBadge(cell, c, 11, 1);
       } else {
         cell.addSpacer();
         const mt = cell.addText(metaLine(c, true));
-        mt.font = Font.systemFont(9);
+        mt.font = Font.systemFont(11);
         mt.textColor = cMeta(c, isNow);
         mt.lineLimit = 1;
         mt.minimumScaleFactor = 0.7;
@@ -1157,25 +1187,26 @@ function buildExtraLarge(widget) {
   bigHeader(main);
   main.addSpacer(8);
 
-  // 354 - 32(內距) - 27(標題) - 20(星期列) - 22(狀態列) = 253
+  // 354 - 32(內距) - 28(標題) - 22(星期列) - 26(狀態列) - 4(中文行高餘裕) = 242
   const n = PERIODS.length;
   const gap = n > 10 ? 2 : 3;
-  const cellH = Math.max(13, Math.floor((253 - (n - 1) * gap) / n));
-  const nameSize = Math.max(8, Math.min(10, cellH - 13));
+  const cellH = Math.max(13, Math.floor((242 - (n - 1) * gap) / n));
+  const nameSize = Math.max(10, Math.min(12, cellH - 6));
+  const timeSize = Math.max(9, Math.min(11, cellH - 3));
   const timeW = 46, colGap = 4;
   const colW = Math.floor((654 - timeW - 5 * colGap) / 5);
 
   const head = main.addStack();
   head.layoutHorizontally();
   const corner = head.addStack();
-  corner.size = new Size(timeW, 16);
+  corner.size = new Size(timeW, 18);
   [1, 2, 3, 4, 5].forEach(d => {
     head.addSpacer(colGap);
     const box = head.addStack();
-    box.size = new Size(colW, 16);
+    box.size = new Size(colW, 18);
     box.centerAlignContent();
     const t = box.addText(`星期${DAY_NAMES[d]}`);
-    t.font = d === today ? Font.boldSystemFont(11) : Font.systemFont(11);
+    t.font = d === today ? Font.boldSystemFont(13) : Font.systemFont(13);
     t.textColor = d === today ? col(FG) : dim(FG, 0.35);
   });
   main.addSpacer(4);
@@ -1190,7 +1221,7 @@ function buildExtraLarge(widget) {
     tw.size = new Size(timeW, cellH);
     tw.centerAlignContent();
     const tl = tw.addText(periodLabel(p));
-    tl.font = Font.systemFont(9);
+    tl.font = Font.systemFont(timeSize);
     tl.textColor = dim(FG, 0.3);
 
     [1, 2, 3, 4, 5].forEach(d => {
@@ -1857,7 +1888,13 @@ function dayCourses(day) {
 function cName(c, now) { const t = theme(); return now ? c.color : (S.colorful ? rgba(c.color,.85) : rgba(t.fg,.40)); }
 function cMeta(c, now) { const t = theme(); return now ? rgba(c.color,.70) : (S.colorful ? rgba(c.color,.50) : rgba(t.fg,.25)); }
 function cBar(c, now)  { const t = theme(); return now ? c.color : (S.colorful ? rgba(c.color,.55) : rgba(t.fg,.15)); }
-function cPill(c, now) { const t = theme(); return now ? rgba(c.color,.30) : (S.colorful ? rgba(c.color,.22) : rgba(t.fg,.13)); }
+function cPill(c, now) { const t = theme(); return now ? rgba(c.color,.38) : (S.colorful ? rgba(c.color,.22) : rgba(t.fg,.13)); }
+// 徽章底色是整塊課程色，字要自動選黑或白才讀得到
+function onColor(hex) {
+  const h = String(hex).replace('#', '');
+  const r = parseInt(h.substr(0,2),16), g = parseInt(h.substr(2,2),16), b = parseInt(h.substr(4,2),16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#101010' : '#ffffff';
+}
 const EMPTY_CELL = .035;
 function periodEnd(p) {
   const t = S.times[p-1] || DEFAULT_TIMES[p-1] || '';
@@ -1884,9 +1921,9 @@ function metaLine(c, withTeacher) {
   if (S.showType && c.type) s += `  ${TYPE_LABEL[c.type] || c.type}`;
   return s;
 }
-// 中文字算 2 格，依膠囊寬度截字
-function fitLabel(name, boxW) {
-  const budget = Math.max(4, Math.floor((boxW - 12) / 5.5));
+// 中文字算 2 格，依膠囊寬度與字級截字
+function fitLabel(name, boxW, size) {
+  const budget = Math.max(4, Math.floor((boxW - 12) / ((size || 11) / 2)));
   let w = 0, out = '';
   for (const ch of String(name || '')) {
     const cw = ch.codePointAt(0) > 0x2e7f ? 2 : 1;
@@ -1902,7 +1939,7 @@ function listPlan(count, availH, rowH, gap) {
   const max = Math.max(1, Math.floor((availH + gap) / (rowH + pad + gap)));
   return { rowH, gap, max };
 }
-const MED_LIST_H = 106;  // 中 Widget 每欄可用高度，對應腳本裡的同名常數
+const MED_LIST_H = 105;  // 中 Widget 每欄可用高度，對應腳本裡的同名常數
 function dateStr() { const n = new Date(); return `${n.getMonth()+1}/${n.getDate()}`; }
 function isNowFor(c, day) { return simPeriod > 0 && day === simDay && c.periods.includes(simPeriod); }
 
@@ -1935,13 +1972,19 @@ function pvRow(c, now, barH) {
   }
   return row;
 }
-function pvBadge(row, c) {
+// 「上課中」徽章：底色整塊填滿課程色，字用對比色，才不會和同色系的底色糊成一片
+function badgeEl(c, size, padV) {
+  const pv = padV == null ? 3 : padV;
+  return E('div', {
+    style: `padding:${pv}px 7px;border-radius:7px;flex:none;white-space:nowrap;` +
+           `background:${c.color};color:${onColor(c.color)};font-size:${size || 11}px;font-weight:700;line-height:1.2`,
+    text: '上課中',
+  });
+}
+function pvBadge(row, c, size, padV) {
   if (!S.showBadge) return;
   row.appendChild(flexSp());
-  row.appendChild(E('div', {
-    style: `padding:3px 6px;border-radius:6px;flex:none;background:${rgba(c.color,.22)};color:${c.color};font-size:9px;font-weight:700;line-height:1.1`,
-    text: '上課中',
-  }));
+  row.appendChild(badgeEl(c, size, padV));
 }
 function pvInfo() { return E('div', { class: 'v grow' }); }
 
@@ -2010,16 +2053,16 @@ function pvSmall() {
   wg.appendChild(s);
 
   const tr = E('div', { class: 'h' });
-  tr.appendChild(txt(simDay === 0 ? '週末' : `星期${dayName(simDay)}`, 13, rgba(t.fg,.55), true));
+  tr.appendChild(txt(simDay === 0 ? '週末' : `星期${dayName(simDay)}`, 14, rgba(t.fg,.55), true));
   tr.appendChild(flexSp());
-  tr.appendChild(txt(dateStr(), 11, rgba(t.fg,.35)));
+  tr.appendChild(txt(dateStr(), 12, rgba(t.fg,.35)));
   s.appendChild(tr);
 
   const a = agenda();
   const focus = a.now || a.next;
   if (!focus) {
     s.appendChild(flexSp());
-    s.appendChild(txt(simDay === 0 ? '週末放假 ☀️' : '沒有課了 🎉', 14, rgba(t.fg,.45), false, 'text-align:center'));
+    s.appendChild(txt(simDay === 0 ? '週末放假 ☀️' : '沒有課了 🎉', 15, rgba(t.fg,.45), false, 'text-align:center'));
     s.appendChild(flexSp());
     return wg;
   }
@@ -2040,26 +2083,26 @@ function pvSmall() {
   if (S.showBadge || !isNow) {
     const head = isNow ? '上課中' : (a.nextDay === simDay ? '下一堂' : `星期${dayName(a.nextDay)}`);
     box.appendChild(txt(head + (left && sameDay ? ` · ${isNow ? '剩' : '再'} ${left}` : ''),
-      10, isNow ? focus.color : rgba(t.fg,.35), true));
+      11, isNow ? focus.color : rgba(t.fg,.35), true));
     box.appendChild(sp(3));
   }
   const nameColor = isNow ? focus.color : (S.colorful ? rgba(focus.color,.9) : t.fg);
   box.appendChild(E('div', {
-    style: `font-size:18px;font-weight:700;line-height:1.2;color:${nameColor};` +
+    style: `font-size:20px;font-weight:700;line-height:1.2;color:${nameColor};` +
            'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden',
     text: focus.name,
   }));
   box.appendChild(sp(3));
 
-  box.appendChild(txt(timeRange(focus), 10, isNow ? rgba(focus.color,.75) : rgba(t.fg,.45)));
-  box.appendChild(txt(metaLine(focus, false), 10, isNow ? rgba(focus.color,.6) : rgba(t.fg,.3)));
+  box.appendChild(txt(timeRange(focus), 12, isNow ? rgba(focus.color,.75) : rgba(t.fg,.45)));
+  box.appendChild(txt(metaLine(focus, false), 12, isNow ? rgba(focus.color,.6) : rgba(t.fg,.3)));
   s.appendChild(box);
 
   s.appendChild(flexSp());
   const after = a.now ? a.next : dayCourses(a.nextDay).filter(c => startMin(c) > startMin(focus))[0];
   if (after) {
     const when = a.nextDay === simDay ? '' : `星期${dayName(a.nextDay)} `;
-    s.appendChild(txt(`接著 ${when}${timeRange(after).split('–')[0]} ${after.name}`, 9, rgba(t.fg,.3)));
+    s.appendChild(txt(`接著 ${when}${timeRange(after).split('–')[0]} ${after.name}`, 11, rgba(t.fg,.3)));
   }
   return wg;
 }
@@ -2092,11 +2135,11 @@ function pvDayColumn(stack, label, day, live, titleColor) {
   const list = day === 0 ? [] : dayCourses(day);
   const plan = listPlan(list.length, MED_LIST_H, 28, 5);
   const shown = Math.min(list.length, plan.max);
-  pvSectionTitle(stack, label, 13, titleColor, list.length - plan.max);
+  pvSectionTitle(stack, label, 14, titleColor, list.length - plan.max);
   stack.appendChild(sp(8));
 
-  if (day === 0) { stack.appendChild(txt('放假囉 ☀️', 12, rgba(t.fg,.45))); return; }
-  if (!list.length) { stack.appendChild(txt('沒有課 🎉', 12, rgba(t.fg,.45))); return; }
+  if (day === 0) { stack.appendChild(txt('放假囉 ☀️', 13, rgba(t.fg,.45))); return; }
+  if (!list.length) { stack.appendChild(txt('沒有課 🎉', 13, rgba(t.fg,.45))); return; }
 
   stack.appendChild(flexSp());   // 課少時把列表置中
   const pad = S.accent === 'card' ? 12 : 0;
@@ -2104,15 +2147,19 @@ function pvDayColumn(stack, label, day, live, titleColor) {
   const rowH = big
     ? Math.max(28, Math.min(52, Math.floor((MED_LIST_H - (shown - 1) * plan.gap) / shown) - pad))
     : plan.rowH;
-  const nameSize = rowH >= 46 ? 15 : (rowH >= 34 ? 13 : 12);
-  const metaSize = rowH >= 46 ? 11 : 10;
+  const nameSize = rowH >= 46 ? 16 : (rowH >= 34 ? 14 : 13);
+  const metaSize = rowH >= 46 ? 12 : 11;
 
   list.slice(0, shown).forEach((c, i) => {
     if (i > 0) stack.appendChild(sp(plan.gap));
     const now = live && isNowFor(c, day);
     const row = pvRow(c, now, rowH);
     const info = pvInfo();
-    info.appendChild(txt(c.name, nameSize, cName(c, now), true));
+    // 徽章只掛在課名那一行，下面的教室／老師才不會被擠掉
+    const nameRow = E('div', { class: 'h' });
+    nameRow.appendChild(txt(c.name, nameSize, cName(c, now), true));
+    if (now) pvBadge(nameRow, c, 11, 2);
+    info.appendChild(nameRow);
 
     const twoLines = rowH >= 46;
     info.appendChild(txt(twoLines ? timeRange(c) : `${timeRange(c)} · ${metaLine(c, true)}`, metaSize, cMeta(c, now)));
@@ -2128,9 +2175,9 @@ function pvDayColumn(stack, label, day, live, titleColor) {
 function pvHeader(main) {
   const t = theme();
   const h = E('div', { class: 'h' });
-  h.appendChild(txt(S.title, 15, t.fg, true));
+  h.appendChild(txt(S.title, 16, t.fg, true));
   h.appendChild(flexSp());
-  h.appendChild(txt(dateStr(), 11, rgba(t.fg,.35)));
+  h.appendChild(txt(dateStr(), 12, rgba(t.fg,.35)));
   main.appendChild(h);
 }
 
@@ -2141,25 +2188,30 @@ function pvStatusLine(main, twoLines) {
   const focus = a.now || a.next;
   const row = E('div', { class: 'h', style: 'flex:none' });
   main.appendChild(row);
-  if (!focus) { row.appendChild(txt('本週沒有排課', 10, rgba(t.fg,.3))); return; }
+  if (!focus) { row.appendChild(txt('本週沒有排課', 12, rgba(t.fg,.3))); return; }
 
   const isNow = !!a.now;
   const left = isNow ? untilText(endMin(focus)) : untilText(startMin(focus));
   const tail = (left && (isNow || a.nextDay === simDay)) ? `　${isNow ? '剩' : '再'} ${left}` : '';
   const meta = `${timeRange(focus)} · ${metaLine(focus, true)}${tail}`;
 
-  row.appendChild(txt(isNow ? '上課中' : (a.nextDay === simDay ? '下一堂' : `星期${dayName(a.nextDay)}`),
-    10, isNow ? focus.color : rgba(t.fg,.35), true));
+  // 上課中就用實心徽章，一眼看得出是哪一種狀態
+  if (isNow && S.showBadge) {
+    row.appendChild(badgeEl(focus));
+  } else {
+    row.appendChild(txt(isNow ? '上課中' : (a.nextDay === simDay ? '下一堂' : `星期${dayName(a.nextDay)}`),
+      12, isNow ? focus.color : rgba(t.fg,.35), true));
+  }
   row.appendChild(sp(8, true));
-  row.appendChild(txt(focus.name, 11, isNow ? focus.color : rgba(t.fg,.6), true));
+  row.appendChild(txt(focus.name, 13, isNow ? focus.color : rgba(t.fg,.6), true));
 
   if (twoLines) {
     row.appendChild(flexSp());
     main.appendChild(sp(2));
-    main.appendChild(txt(meta, 10, rgba(t.fg,.35)));
+    main.appendChild(txt(meta, 12, rgba(t.fg,.35)));
   } else {
     row.appendChild(sp(8, true));
-    row.appendChild(txt(meta, 10, rgba(t.fg,.35)));
+    row.appendChild(txt(meta, 12, rgba(t.fg,.35)));
     row.appendChild(flexSp());
   }
 }
@@ -2175,11 +2227,13 @@ function pvGridCell(row, c, p, isNow, w, h, nameSize) {
   row.appendChild(cell);
   if (!c) return cell;
   cell.style.padding = '0 6px';
+  // 正在上的那格描一圈實心外框，格子太小塞不下徽章時就靠它辨識
+  if (isNow) cell.style.border = `2px solid ${c.color}`;
   const idx = c.periods.indexOf(p);
   if (idx === 0) {
-    cell.appendChild(txt(fitLabel(c.name, w), nameSize, cName(c, isNow), true));
+    cell.appendChild(txt(fitLabel(c.name, w, nameSize), nameSize, cName(c, isNow), true));
   } else if (idx === 1 && c.room && h >= 20) {
-    cell.appendChild(txt(fitLabel(`🏛️ ${c.room}`, w), Math.max(8, nameSize - 1), cMeta(c, isNow)));
+    cell.appendChild(txt(fitLabel(`🏛️ ${c.room}`, w, nameSize - 1), Math.max(10, nameSize - 1), cMeta(c, isNow)));
   }
   return cell;
 }
@@ -2199,15 +2253,16 @@ function pvLarge() {
     : (pick.isToday ? `今日課程 · 星期${dayName(pick.day)}`
                     : (simDay === 0 ? `週末放假 ☀️ · 星期${dayName(pick.day)}課表`
                                     : `今天沒課 🎉 · 星期${dayName(pick.day)}課表`));
-  main.appendChild(txt(label, 12, rgba(t.fg,.5), true));
+  main.appendChild(txt(label, 13, rgba(t.fg,.5), true));
   main.appendChild(sp(6));
   if (pick.day === 0) return wg;
 
   const ps = pvPeriods();
   const n = ps.length;
   const gap = n > 10 ? 2 : 3;
-  const cellH = Math.max(13, Math.floor((243 - (n - 1) * gap) / n));
-  const nameSize = Math.max(9, Math.min(11, cellH - 12));
+  const cellH = Math.max(13, Math.floor((231 - (n - 1) * gap) / n));
+  const nameSize = Math.max(10, Math.min(13, cellH - 6));
+  const timeSize = Math.max(9, Math.min(11, cellH - 3));
   const timeW = 44, cellW = 306 - timeW - 6;
   const list = dayCourses(pick.day);
 
@@ -2215,7 +2270,7 @@ function pvLarge() {
     if (i > 0) main.appendChild(sp(gap));
     const row = E('div', { class: 'h', style: `height:${cellH}px;flex:none` });
     const tw = E('div', { style: `width:${timeW}px;height:${cellH}px;flex:none;display:flex;align-items:center;justify-content:center` });
-    tw.appendChild(txt(periodLabel(p), 9, rgba(t.fg,.3)));
+    tw.appendChild(txt(periodLabel(p), timeSize, rgba(t.fg,.3)));
     row.appendChild(tw);
     row.appendChild(sp(6, true));
 
@@ -2225,13 +2280,10 @@ function pvLarge() {
     // 只有課名那一格右邊掛東西：上課中就掛徽章，否則掛教室／老師
     if (c && c.periods.indexOf(p) === 0) {
       cell.appendChild(flexSp());
-      if (isNow && S.showBadge) {
-        cell.appendChild(E('div', {
-          style: `padding:2px 6px;border-radius:6px;flex:none;background:${rgba(c.color,.22)};color:${c.color};font-size:9px;font-weight:700;line-height:1.1`,
-          text: '上課中',
-        }));
+      if (isNow && S.showBadge && cellH >= 18) {
+        cell.appendChild(badgeEl(c, 11, 1));
       } else {
-        cell.appendChild(txt(metaLine(c, true), 9, cMeta(c, isNow)));
+        cell.appendChild(txt(metaLine(c, true), 11, cMeta(c, isNow)));
       }
     }
     main.appendChild(row);
@@ -2254,17 +2306,18 @@ function pvExtraLarge() {
   const ps = pvPeriods();
   const n = ps.length;
   const gap = n > 10 ? 2 : 3;
-  const cellH = Math.max(13, Math.floor((253 - (n - 1) * gap) / n));
-  const nameSize = Math.max(8, Math.min(10, cellH - 13));
+  const cellH = Math.max(13, Math.floor((242 - (n - 1) * gap) / n));
+  const nameSize = Math.max(10, Math.min(12, cellH - 6));
+  const timeSize = Math.max(9, Math.min(11, cellH - 3));
   const timeW = 46, colGap = 4;
   const colW = Math.floor((654 - timeW - 5 * colGap) / 5);
 
-  const head = E('div', { class: 'h', style: 'height:16px;flex:none' });
+  const head = E('div', { class: 'h', style: 'height:18px;flex:none' });
   head.appendChild(E('div', { style: `width:${timeW}px;flex:none` }));
   [1,2,3,4,5].forEach(d => {
     head.appendChild(sp(colGap, true));
     const box = E('div', { style: `width:${colW}px;flex:none;display:flex;align-items:center;justify-content:center` });
-    box.appendChild(txt(`星期${dayName(d)}`, 11, d === simDay ? t.fg : rgba(t.fg,.35), d === simDay));
+    box.appendChild(txt(`星期${dayName(d)}`, 13, d === simDay ? t.fg : rgba(t.fg,.35), d === simDay));
     head.appendChild(box);
   });
   main.appendChild(head);
@@ -2274,7 +2327,7 @@ function pvExtraLarge() {
     if (i > 0) main.appendChild(sp(gap));
     const row = E('div', { class: 'h', style: `height:${cellH}px;flex:none` });
     const tw = E('div', { style: `width:${timeW}px;height:${cellH}px;flex:none;display:flex;align-items:center;justify-content:center` });
-    tw.appendChild(txt(periodLabel(p), 9, rgba(t.fg,.3)));
+    tw.appendChild(txt(periodLabel(p), timeSize, rgba(t.fg,.3)));
     row.appendChild(tw);
 
     [1,2,3,4,5].forEach(d => {
@@ -2309,6 +2362,20 @@ function renderPreview() {
   if (k < 1) { node.style.transform = `scale(${k})`; node.style.transformOrigin = 'top left'; }
   box.appendChild(node);
   stage.appendChild(box);
+  shrinkToFit(node);
+}
+
+// 腳本裡的文字都有 minimumScaleFactor，塞不下時 iOS 會自動把字縮小而不是截掉；
+// 預覽也照做一次，不然會看到手機上其實不會發生的「…」
+function shrinkToFit(node) {
+  node.querySelectorAll('.one').forEach(el => {
+    if (el.scrollWidth <= el.clientWidth + 0.5) return;
+    const base = parseFloat(getComputedStyle(el).fontSize);
+    for (let f = 0.95; f >= 0.7; f -= 0.05) {
+      el.style.fontSize = (base * f).toFixed(2) + 'px';
+      if (el.scrollWidth <= el.clientWidth + 0.5) break;
+    }
+  });
 }
 
 /* ═══════════ 產生程式碼 ═══════════ */
